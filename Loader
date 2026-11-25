@@ -10,55 +10,26 @@ local Keybinds = {
     RandomPlayer = Enum.KeyCode.R,
 }
 
-if getthreadidentity and setthreadidentity then
-    local _id = getthreadidentity()
-    if _id and _id >= 3 then
-        
-    else
-        pcall(setthreadidentity, 7)
-    end
-end
 local ProfileData      = require(game.ReplicatedStorage.Modules.ProfileData)
 local InventoryModule  = require(game.ReplicatedStorage.Modules.InventoryModule)
 local ItemModule       = require(game.ReplicatedStorage.Modules.ItemModule)
 local Sync             = require(game.ReplicatedStorage.Database.Sync)
 local ItemPopupService = require(game.ReplicatedStorage.ClientServices.ItemPopupService)
 
-pcall(function()
-    if not setthreadidentity then return end
-    for _, id in ipairs({8, 7, 6, 5, 4, 3, 2}) do
-        local setOk = pcall(function() setthreadidentity(id) end)
-        if setOk then
-            local instanceOk = pcall(function()
-                local t = Instance.new("ScreenGui"); t:Destroy()
-            end)
-            if instanceOk then break end
-        end
-    end
-end)
 
 local GEN_KEY = "__MM2BlessingGen"
 pcall(function()
     if getgenv then getgenv()[GEN_KEY] = (getgenv()[GEN_KEY] or 0) + 1 end
 end)
 local MY_GEN = (getgenv and getgenv()[GEN_KEY]) or 0
+if getgenv then getgenv().VisualTradeActive = true end
+if getgenv then getgenv().VisualTradeActive = true end
 local PERSIST_KEY = "__MM2BlessingPersist"
 local function isStale()
     if not getgenv then return false end
     return getgenv()[GEN_KEY] ~= MY_GEN
 end
 
-local function ensureIdentity()
-    if not setthreadidentity then return true end
-    local ok, gui = pcall(function() return Instance and Instance.new("ScreenGui") end)
-    if ok and gui then pcall(function() gui:Destroy() end); return true end
-    for _, id in ipairs({8,7,6,5,4,3}) do
-        pcall(setthreadidentity, id)
-        local ok2, gui2 = pcall(function() return Instance and Instance.new("ScreenGui") end)
-        if ok2 and gui2 then pcall(function() gui2:Destroy() end); return true end
-    end
-    return false
-end
 
 local savedMetatables = {}
 local savedOwnedMetatables = {}
@@ -107,7 +78,19 @@ local State = {
     csrf             = nil,
     browserTrackerId = nil,
     authName         = nil,
+    authValidated    = false,
+    authRevision     = 0,
 }
+
+local refreshAutoBlockButton = function() end
+local function invalidateAuth()
+    State.authRevision = State.authRevision + 1
+    State.authValidated = false
+    State.authName = nil
+    State.csrf = nil
+    Config.auto_block = false
+    refreshAutoBlockButton()
+end
 
 local AUTH_FILE = "visualtrade_auth.json"
 
@@ -137,7 +120,7 @@ local function loadAuthFromFile()
     if not ok or type(data) ~= "string" or #data < 5 then return false end
     local ok2, decoded = pcall(function() return HttpService:JSONDecode(data) end)
     if not ok2 or type(decoded) ~= "table" then return false end
-    if decoded.cookie and decoded.tracker then
+    if type(decoded.cookie) == "string" and type(decoded.tracker) == "string" then
         State.cookie = decoded.cookie
         State.browserTrackerId = decoded.tracker
         return true
@@ -316,12 +299,14 @@ local BASE_HEADERS = {
 
 local function fetchCsrf()
     if State.cookie == "" then return nil end
+    local revision = State.authRevision
     local h = {}
     for k, v in pairs(BASE_HEADERS) do h[k] = v end
     h["Cookie"] = ".ROBLOSECURITY=" .. State.cookie
     h["Content-Type"] = "application/json"
 
     local res = httpRequest({Url = "https://auth.roblox.com/v2/logout", Method = "POST", Headers = h, Body = "{}"})
+    if revision ~= State.authRevision then return nil end
     if not res then return nil end
     local tok = getHeader(res.Headers, "x-csrf-token")
     if tok then State.csrf = tok end
@@ -329,17 +314,22 @@ local function fetchCsrf()
 end
 
 local function fetchAuthenticatedUser()
+    local revision = State.authRevision
+    State.authValidated = false
+    State.authName = nil
     if State.cookie == "" then return nil, "no cookie" end
     local h = {}
     for k, v in pairs(BASE_HEADERS) do h[k] = v end
     h["Cookie"] = ".ROBLOSECURITY=" .. State.cookie
 
     local res, err = httpRequest({Url = "https://users.roblox.com/v1/users/authenticated", Method = "GET", Headers = h})
+    if revision ~= State.authRevision then return nil, "auth changed" end
     if not res then return nil, "network error: " .. tostring(err) end
     if res.StatusCode ~= 200 then return nil, "HTTP " .. tostring(res.StatusCode) end
     local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
     if not ok or type(data) ~= "table" or not data.id then return nil, "bad response" end
     State.authName = data.name
+    State.authValidated = true
     return data, nil
 end
 
@@ -408,58 +398,65 @@ local function doBlock(userId)
 end
 
 local SCANNER_VALUES = {
-    ["Icecream"]           = 155,
-    ["IcecreamChroma"]     = 1500,
-    ["Emberbow"]           = 550,
-    ["EmberbowChroma"]     = 5000,
-    ["Emberscythe"]        = 550,
-    ["EmberscytheChroma"]  = 16000,
-    ["Mortal"]             = 100,
-    ["MortalChroma"]       = 1500,
-    ["Immortal"]           = 100,
-    ["ImmortalChroma"]     = 1500,
-    ["Embersickle"]        = 85,
-    ["EmbersickleChroma"]  = 1500,
-    ["TravelerGunChroma"]=220000,["TreeGun2023Chroma"]=74000,["TreeKnife2023Chroma"]=52000,["BaubleChroma"]=33000,["VampireGunChroma"]=29000,["ConstellationChroma"]=27500,["UFOKnifeChroma"]=23000,
-    ["RaygunChroma"]=13000,["SunsetGunChroma"]=12750,["SnowcannonChroma"]=8650,["BlizzardChroma"]=7800,["SunsetKnifeChroma"]=7750,
-    ["HeartWandChroma"]=4450,["SnowDaggerChroma"]=4350,["SnowstormChroma"]=4250,["WatergunChroma"]=3400,["TreatChroma"]=2450,
-    ["Sweet"]=160,["SweetChroma"]=2150,["BaubleKnifeChroma"]=1800,["ChromaDarkbringer"]=65,["ChromaLightbringer"]=60,["LugerChroma"]=50,
-    ["LaserChroma"]=45,["CandleflameChroma"]=42,["SwirlyGunChroma"]=42,["ElderwoodKnifeChroma"]=42,["SlasherChroma"]=35,
-    ["DeathshardChroma"]=35,["GingermintKChroma"]=35,["Gingermint_KChroma"]=35,["SharkChroma"]=33,["FangChroma"]=33,
-    ["GemstoneChroma"]=33,["HeatChroma"]=32,["TidesChroma"]=30,["SeerChroma"]=30,["GingerbladeChroma"]=30,
-    ["SawChroma"]=25,["BonebladeChroma"]=20,["SandsChroma"]=15,["Gingerscope"]=17700,["TravelerAxe"]=8150,
-    ["Celestial"]=2000,["VampireAxe"]=1200,["Harvester"]=245,["Icepiercer"]=165,["Icebreaker"]=70,
-    ["Scythe"]=45,["ElderwoodScythe"]=40,["SwirlyAxe"]=40,["Hallowscythe"]=32,["Logchopper"]=20,
-    ["Icewing"]=18,["TravelerGun"]=5000,["TreeGun2023"]=3425,["Constellation"]=2700,["TreeKnife2023"]=2475,
-    ["Turkey2023"]=2450,["UFOKnife"]=1950,["VampireGun"]=1775,["Darkshot"]=1600,["Darksword"]=1575,
-    ["Raygun"]=1365,["Blossom"]=1270,["Sakura_K"]=1250,["Rainbow_K"]=495,["SunsetGun"]=1125,["Bauble"]=900,
-    ["Snowcannon"]=900,["SunsetKnife"]=625,["WraithGun"]=560,["WraithKnife"]=550,
-    ["Flora"]=410,["Bloom"]=400,["HeartWand"]=335,["Ocean_G"]=280,
-    ["Waves_K"]=275,["XenoKnife"]=270,["XenoGun"]=270,["SnowDagger"]=265,["FlowerwoodGun"]=260,
-    ["FlowerwoodKnife"]=255,["Blizzard"]=250,["Snowstorm"]=250,["Watergun"]=245,["Treat"]=160,
-    ["AuroraGun"]=155,["AuroraKnife"]=150,["ZombieBat"]=120,["Pearl_G"]=95,["Pearl_K"]=90,
-    ["Candy"]=85,["Heartblade"]=70,["Luger"]=45,["RedLuger"]=40,["Phantom"]=38,
-    ["Phantom2022"]=38,["Spectre2022"]=38,["Candleflame"]=37,["ElderwoodGun"]=37,["Darkbringer"]=37,
-    ["Iceblaster"]=37,["Sugar"]=35,["Makeshift"]=35,["Lightbringer"]=35,["ElderwoodKnife"]=32,
-    ["GreenLuger"]=28,["Ornament1"]=28,["Amerilaser"]=25,["Laser"]=25,["Hallowgun"]=25,
-    ["Icebeam"]=23,["Shark"]=23,["Nightblade"]=23,["SwirlyGun"]=20,["Pixel"]=20,
-    ["GingerLuger"]=20,["Slasher"]=20,["Plasmabeam"]=20,["Iceflake"]=18,["BattleAxe2"]=18,
-    ["Plasmablade"]=18,["AmericaSword"]=17,["Blaster"]=17,["Virtual"]=15,["Minty"]=15,
-    ["Lugercane"]=15,["VampiresEdge"]=15,["Jinglegun"]=15,["Gingermint_K"]=14,["Nebula"]=13,
-    ["SwirlyBlade"]=13,["Deathshard"]=13,["BattleAxe"]=13,["Gingerblade"]=13,["EternalCane"]=13,
-    ["Gemstone"]=13,["Chill"]=12,["Clockwork"]=12,["Spider"]=12,["Heat"]=12,
-    ["Tides"]=12,["Fang"]=12,["Eternal"]=10,["TheSeer"]=10,["Xmas"]=10,
-    ["Frostsaber"]=10,["Eternal3"]=10,["Bioblade"]=10,["Eternal4"]=10,["Handsaw"]=9,
-    ["Hallow"]=9,["IceShard"]=9,["Eternal2"]=8,["Boneblade"]=8,["Pumpking"]=8,
-    ["Saw"]=8,["Ghostblade"]=8,["Flames"]=7,["WintersEdge"]=7,["IceDragon"]=7,
-    ["HallowsBlade"]=7,["Frostbite"]=7,["Eggblade"]=5,["Snowflake"]=5,["Prismatic"]=5,
-    ["Peppermint"]=4,["Cookieblade"]=4,["RedSeer"]=3,["BlueSeer"]=3,["PurpleSeer"]=3,
-    ["Seer"]=3,["OrangeSeer"]=2,["YellowSeer"]=2,["Sorry"]=475,["Dungeon"]=350,
-    ["Krypto"]=3,["Beachy"]=55,["BeachyChroma"]=175,["Sands"]=15,
-    ["SandsChroma"]=15,["SandyChroma"]=12,["Dunes"]=8,["DunesChroma"]=10,
-    ["Shoreline"]=7,["Surf"]=6,["SurfChroma"]=8,["Tidal"]=6,["TidalChroma"]=8,
-    ["Cove"]=5,["Tide"]=5,["Wave"]=5,["Coast"]=4,["Shore"]=4,
-    ["Drift"]=4,["DriftChroma"]=6,["Splash"]=3,["Ripple"]=3,
+    ["NikKnife"]=100000000,["TravelerGunChroma"]=140000,["TreeGun2023Chroma"]=53000,["TreeKnife2023Chroma"]=42000,
+    ["BaubleChroma"]=30000,["ConstellationChroma"]=27000,["VampireGunChroma"]=24000,["UFOKnifeChroma"]=18000,
+    ["Gingerscope"]=16000,["RaygunChroma"]=12500,["SunsetGunChroma"]=8500,["SnowcannonChroma"]=7750,
+    ["TravelerAxe"]=6600,["EmberscytheChroma"]=6000,["EmberbowChroma"]=5500,["BlizzardChroma"]=5500,
+    ["SunsetKnifeChroma"]=5500,["TravelerGun"]=4400,["SnowstormChroma"]=4250,["TreeGun2023"]=3550,
+    ["HeartWandChroma"]=3500,["TreeKnife2023"]=2850,["Constellation"]=2500,["SnowDaggerChroma"]=2350,
+    ["WatergunChroma"]=2300,["Celestial"]=2025,["Turkey2023"]=1950,["UFOKnife"]=1875,
+    ["VampireGun"]=1850,["Raygun"]=1850,["BaubleKnifeChroma"]=1825,["EmbersickleChroma"]=1800,
+    ["TreatChroma"]=1775,["SweetChroma"]=1725,["MortalChroma"]=1600,["ImmortalChroma"]=1600,
+    ["IcecreamChroma"]=1525,["Darkshot"]=1450,["Darksword"]=1425,["Blossom_G"]=1160,
+    ["Sakura_K"]=1150,["VampireAxe"]=1100,["Snowcannon"]=900,["SandsChroma"]=850,
+    ["SunsetGun"]=800,["BeachyChroma"]=800,["Bauble"]=775,["SunsetKnife"]=650,
+    ["Emberbow"]=575,["Emberscythe"]=575,["WraithGun"]=480,["WraithKnife"]=470,
+    ["Rainbow_G"]=405,["Rainbow_K"]=400,["Flora"]=400,["XenoKnife"]=400,
+    ["XenoGun"]=400,["Bloom"]=395,["HeartWand"]=340,["Harvester"]=310,
+    ["Blizzard"]=250,["Snowstorm"]=250,["Ocean_G"]=240,["FlowerwoodGun"]=240,
+    ["Waves_K"]=235,["FlowerwoodKnife"]=235,["Sorry"]=230,["Icepiercer"]=220,
+    ["SnowDagger"]=165,["Treat"]=155,["ZombieBat"]=155,["Sweet"]=150,
+    ["LatteGun"]=140,["LatteKnife"]=140,["Icecream"]=130,["Watergun"]=130,
+    ["AuroraGun"]=130,["Embersickle"]=130,["AuroraKnife"]=125,["Mortal"]=120,
+    ["Immortal"]=120,["Dungeon"]=110,["Candy"]=90,["Pearl_G"]=80,
+    ["Pearl_K"]=75,["Icebreaker"]=65,["ChromaDarkbringer"]=65,["Heartblade"]=65,
+    ["BaubleKnife"]=65,["Beachy"]=65,["Sands"]=65,["ChromaLightbringer"]=60,
+    ["LugerChroma"]=50,["SpectralKnife"]=50,["TravelerGun2023"]=50,["AuroraGun2021"]=45,
+    ["VampireGun2022"]=45,["Scythe"]=40,["LaserChroma"]=40,["CandleflameChroma"]=40,
+    ["ElderwoodKnifeChroma"]=37,["ElderwoodScythe"]=35,["SwirlyAxe"]=35,["RedLuger"]=35,
+    ["SwirlyGunChroma"]=35,["Beach"]=35,["CottonCandy"]=35,["DeathshardChroma"]=33,
+    ["Phantom2022"]=32,["Spectre2022"]=32,["Darkbringer"]=32,["Lightbringer"]=32,
+    ["Iceblaster"]=32,["ElderwoodGun"]=32,["Gingermint_KChroma"]=32,["SharkChroma"]=32,
+    ["FangChroma"]=32,["GemstoneChroma"]=32,["Hallowscythe"]=30,["SlasherChroma"]=30,
+    ["Candleflame"]=30,["Sugar"]=30,["Makeshift"]=30,["ElderwoodKnife"]=30,
+    ["HeatChroma"]=28,["TidesChroma"]=27,["SeerChroma"]=27,["JD"]=27,
+    ["GingerbladeChroma"]=25,["GreenLuger"]=23,["SawChroma"]=23,["Amerilaser"]=22,
+    ["Laser"]=22,["BonebladeChroma"]=22,["Luger"]=20,["Hallowgun"]=20,
+    ["Shark"]=20,["Nightblade"]=20,["Icebeam"]=18,["SwirlyGun"]=18,
+    ["Plasmabeam"]=18,["Logchopper"]=17,["Pixel"]=17,["GingerLuger"]=17,
+    ["BattleAxe2"]=17,["Blaster"]=17,["Slasher"]=15,["Iceflake"]=15,
+    ["Plasmablade"]=15,["AmericaSword"]=15,["VampiresEdge"]=15,["Gemstone"]=15,
+    ["Bunnies"]=15,["Icewing"]=13,["Virtual"]=13,["Minty"]=13,
+    ["Lugercane"]=13,["Jinglegun"]=13,["Nebula"]=13,["Deathshard"]=13,
+    ["Gingerblade"]=13,["EternalCane"]=13,["Gingermint_K"]=12,["Gingermint_G"]=12,
+    ["SwirlyBlade"]=12,["BattleAxe"]=12,["Chill"]=10,["Clockwork"]=10,
+    ["Spider"]=10,["Heat"]=10,["Tides"]=10,["Fang"]=10,
+    ["Frostsaber"]=10,["ArcticGun2022"]=10,["Golden2026"]=10,["Shadow2026"]=10,
+    ["Eternal3"]=8,["Eternal4"]=8,["Bioblade"]=8,["Handsaw"]=8,
+    ["Hallow"]=8,["HallowsBlade"]=8,["Blood"]=8,["Ghost"]=8,
+    ["LaserVintage"]=8,["Eternal"]=7,["Eternal2"]=7,["Xmas"]=7,
+    ["IceShard"]=7,["Boneblade"]=7,["Pumpking"]=7,["Saw"]=7,
+    ["Ghostblade"]=7,["IceDragon"]=7,["Frostbite"]=7,["Prismatic"]=7,
+    ["CavernKnife"]=7,["Broken"]=7,["America"]=7,["Prince"]=6,
+    ["Shadow"]=6,["Flames"]=5,["WintersEdge"]=5,["Eggblade"]=5,
+    ["Snowflake"]=5,["Icedriller"]=5,["Nightsky"]=5,["GhostKnife2018"]=5,
+    ["GingerGun2018"]=5,["Phaser"]=5,["Peppermint"]=4,["Cowboy"]=4,
+    ["Golden"]=4,["Cookieblade"]=3,["TheSeer"]=3,["RedSeer"]=3,
+    ["BlueSeer"]=3,["PurpleSeer"]=3,["AuroraKnife2021"]=3,["Emberknife"]=3,
+    ["SpectralGun"]=3,["TravelerKnife2023"]=3,["VampireKnife2022"]=3,["Witched"]=3,
+    ["BlueElite"]=3,["GreenElite"]=3,["RedScratch"]=3,["SantasMagic"]=3,
+    ["SantasSpirit"]=3,["Skulls"]=3,["Splitter"]=3,["OrangeSeer"]=2,
+    ["YellowSeer"]=2,
 }
 
 local DISPLAY_OVERRIDES = {
@@ -997,18 +994,6 @@ function StartTrade()
     end)
 end
 
-pcall(function()
-    if setthreadidentity then
-        local ok = pcall(function() local t = Instance.new("ScreenGui"); t:Destroy() end)
-        if not ok then
-            for _, id in ipairs({8, 7, 6, 5, 4, 3}) do
-                pcall(function() setthreadidentity(id) end)
-                local fine = pcall(function() local t = Instance.new("ScreenGui"); t:Destroy() end)
-                if fine then break end
-            end
-        end
-    end
-end)
 
 local controlGui = Instance.new("ScreenGui")
 controlGui.Name = "VisualTradeUI"
@@ -1016,27 +1001,14 @@ controlGui.ResetOnSpawn = false
 controlGui.DisplayOrder = 999999999
 controlGui.Enabled = true
 
-local guiParent
-pcall(function()
-    if typeof(gethui) == "function" then
-        guiParent = gethui()
-    end
-end)
-if not guiParent then
-    pcall(function()
-        guiParent = game:GetService("CoreGui")
-    end)
-end
-if not guiParent then
-    guiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
-end
-
+local guiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
 controlGui.Parent = guiParent
 
 table.insert(externalConnections, TradeRemotes.StartTrade.OnClientEvent:Connect(function(arg1, arg2)
     if isStale() then return end
     if not controlGui or not controlGui.Enabled then return end
     if getgenv and getgenv().Executed then return end
+    if Config.in_trade then return end
     pcall(DeclineTrade)
 end))
 
@@ -1058,7 +1030,6 @@ local THEME = {
     CyanDark     = Color3.fromRGB(40, 120, 165),
 }
 
-ensureIdentity()
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "Main"
 mainFrame.Size = UDim2.new(0, 400, 0, 620)
@@ -1213,6 +1184,8 @@ closeBtn.MouseButton1Click:Connect(function()
 
     pcall(function()
         if getgenv then getgenv()[GEN_KEY] = (getgenv()[GEN_KEY] or 0) + 1 end
+        if getgenv then getgenv().VisualTradeActive = false end
+        if getgenv then getgenv().VisualTradeActive = false end
     end)
 
     pcall(function()
@@ -1385,19 +1358,27 @@ local function CreateButton(f, text, fn, colorOverride)
         TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
     end)
     btn.MouseButton1Click:Connect(function()
+        if isStale() or not controlGui or not controlGui.Parent
+            or not btn:IsDescendantOf(controlGui) then return end
+
         TweenService:Create(btn,TweenInfo.new(0.07),{BackgroundColor3=THEME.Purple}):Play()
         task.delay(0.08,function()
-            ensureIdentity()
-            if btn.Parent then
-                local newColor = colorOverride or THEME.Panel2
-                if fn then
-                    local ret = fn()
-                    if typeof(ret) == "Color3" then
-                        newColor = ret
-                    end
+            if isStale() or not controlGui or not controlGui.Parent
+                or not btn:IsDescendantOf(controlGui) then return end
+
+            local newColor = colorOverride or THEME.Panel2
+            if fn then
+                local ok, ret = xpcall(fn, debug.traceback)
+                if not ok then
+                    warn("[VisualTrade] Button '" .. text .. "' failed: " .. tostring(ret))
+                elseif typeof(ret) == "Color3" then
+                    newColor = ret
                 end
-                TweenService:Create(btn,TweenInfo.new(0.18),{BackgroundColor3=newColor}):Play()
             end
+
+            if isStale() or not controlGui or not controlGui.Parent
+                or not btn:IsDescendantOf(controlGui) then return end
+            TweenService:Create(btn,TweenInfo.new(0.18),{BackgroundColor3=newColor}):Play()
         end)
     end)
     return btn
@@ -1453,6 +1434,19 @@ CreateSpace(authFrame)
 local CookieBox = createSettingRow("Roblox .ROBLOSECURITY cookie", State.cookie, authFrame)
 local TrackerBox = createSettingRow("RBXEventTrackerV2 (browserid=...)", State.browserTrackerId or "", authFrame)
 
+local function readAuthInputs()
+    local cookie = (CookieBox.Text or ""):gsub("%s+", ""):gsub("^%.?ROBLOSECURITY=", "")
+    local tracker = (TrackerBox.Text or ""):gsub("%s+", ""):gsub("^RBXEventTrackerV2=", ""):gsub("^browserid=", "")
+    return cookie, tracker
+end
+
+local function hasValidatedAuth()
+    local cookie, tracker = readAuthInputs()
+    return State.authValidated and cookie ~= "" and tracker ~= ""
+        and cookie == State.cookie and tracker == State.browserTrackerId
+        and type(State.csrf) == "string" and State.csrf ~= ""
+end
+
 CreateSpace(authFrame)
 
 local authStatusLabel = Instance.new("TextLabel")
@@ -1465,7 +1459,39 @@ authStatusLabel.TextColor3 = THEME.Muted
 authStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 authStatusLabel.Parent = authFrame
 
-if State.cookie ~= "" and State.browserTrackerId ~= "" then
+local authReminderLabel = Instance.new("TextLabel")
+authReminderLabel.Size = UDim2.new(1,0,0,24)
+authReminderLabel.BackgroundTransparency = 1
+authReminderLabel.Text = "Please Enter Auth Details Before Enabling"
+authReminderLabel.Font = Enum.Font.GothamSemibold
+authReminderLabel.TextSize = 11
+authReminderLabel.TextColor3 = THEME.Error
+authReminderLabel.TextTransparency = 1
+authReminderLabel.TextWrapped = true
+authReminderLabel.TextXAlignment = Enum.TextXAlignment.Left
+authReminderLabel.Parent = authFrame
+
+local authReminderVersion = 0
+local authReminderTween
+local function showAuthRequiredNotice()
+    if isStale() or not controlGui or not controlGui.Parent then return end
+    setActiveTab("Auth")
+    authReminderVersion = authReminderVersion + 1
+    local version = authReminderVersion
+    if authReminderTween then
+        authReminderTween:Cancel()
+        authReminderTween = nil
+    end
+    authReminderLabel.TextTransparency = 0
+    task.delay(3, function()
+        if version ~= authReminderVersion or isStale() or not controlGui
+            or not controlGui.Parent or not authReminderLabel:IsDescendantOf(controlGui) then return end
+        authReminderTween = TweenService:Create(authReminderLabel,TweenInfo.new(0.35),{TextTransparency=1})
+        authReminderTween:Play()
+    end)
+end
+
+if State.cookie ~= "" and type(State.browserTrackerId) == "string" and State.browserTrackerId ~= "" then
     authStatusLabel.Text = "Loaded from saved file."
     authStatusLabel.TextColor3 = THEME.Success
 end
@@ -1503,8 +1529,8 @@ clearAuthBtn.Parent = authBtnRow
 Instance.new("UICorner",clearAuthBtn).CornerRadius = UDim.new(0,8)
 
 saveAuthBtn.MouseButton1Click:Connect(function()
-    local clean = (CookieBox.Text or ""):gsub("%s+", ""):gsub("^%.?ROBLOSECURITY=", "")
-    local tracker = (TrackerBox.Text or ""):gsub("%s+", ""):gsub("^RBXEventTrackerV2=", ""):gsub("^browserid=", "")
+    invalidateAuth()
+    local clean, tracker = readAuthInputs()
     
     if #clean < 50 then
         authStatusLabel.Text = "Cookie too short."
@@ -1526,12 +1552,16 @@ saveAuthBtn.MouseButton1Click:Connect(function()
     authStatusLabel.TextColor3 = THEME.Gold
 
     local savedOk, savedErr = saveAuthToFile(clean, tracker)
+    local revision = State.authRevision
 
     task.spawn(function()
         fetchCsrf()
+        if revision ~= State.authRevision or isStale() then return end
         local user, err = fetchAuthenticatedUser()
-        if not user then
-            authStatusLabel.Text = "Auth failed: " .. tostring(err)
+        if revision ~= State.authRevision or isStale() or not controlGui or not controlGui.Parent then return end
+        if not user or not hasValidatedAuth() then
+            State.authValidated = false
+            authStatusLabel.Text = "Auth failed: " .. tostring(err or "missing CSRF token or changed details")
             authStatusLabel.TextColor3 = THEME.Error
             if not savedOk then
                 authStatusLabel.Text = authStatusLabel.Text .. " | Save failed: " .. tostring(savedErr)
@@ -1545,6 +1575,7 @@ saveAuthBtn.MouseButton1Click:Connect(function()
 end)
 
 clearAuthBtn.MouseButton1Click:Connect(function()
+    invalidateAuth()
     State.cookie = ""
     State.csrf = nil
     State.browserTrackerId = nil
@@ -1555,14 +1586,18 @@ clearAuthBtn.MouseButton1Click:Connect(function()
     clearAuthFile()
 end)
 
-if State.cookie ~= "" and State.browserTrackerId ~= "" then
+if State.cookie ~= "" and type(State.browserTrackerId) == "string" and State.browserTrackerId ~= "" then
     authStatusLabel.Text = "Validating saved auth..."
     authStatusLabel.TextColor3 = THEME.Gold
+    local revision = State.authRevision
     task.spawn(function()
         fetchCsrf()
+        if revision ~= State.authRevision or isStale() then return end
         local user, err = fetchAuthenticatedUser()
-        if not user then
-            authStatusLabel.Text = "Saved auth failed: " .. tostring(err)
+        if revision ~= State.authRevision or isStale() or not controlGui or not controlGui.Parent then return end
+        if not user or not hasValidatedAuth() then
+            State.authValidated = false
+            authStatusLabel.Text = "Saved auth failed: " .. tostring(err or "missing CSRF token or changed details")
             authStatusLabel.TextColor3 = THEME.Error
             return
         end
@@ -1660,7 +1695,6 @@ task.spawn(function()
         task.wait(1.0)
         if isStale() then break end
         if not totalFrame or not totalFrame.Parent then break end
-        if not ensureIdentity() then break end
 
         local ok, result = pcall(function()
             return ScannerGetFullInventory:InvokeServer(Players.LocalPlayer.Name)
@@ -1849,8 +1883,8 @@ autoBlockBtn.MouseLeave:Connect(function()
     TweenService:Create(autoBlockBtn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,0,34)}):Play()
     TweenService:Create(autoSt,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
 end)
-autoBlockBtn.MouseButton1Click:Connect(function()
-    Config.auto_block = not Config.auto_block
+refreshAutoBlockButton = function()
+    if not autoBlockBtn.Parent then return end
     if Config.auto_block then
         autoBlockBtn.Text = "Auto Block: ON"
         autoBlockBtn.BackgroundColor3 = THEME.Success
@@ -1860,6 +1894,43 @@ autoBlockBtn.MouseButton1Click:Connect(function()
         autoBlockBtn.BackgroundColor3 = THEME.Panel2
         autoSt.Color = THEME.PurpleDark
     end
+end
+
+local autoBlockChecking = false
+autoBlockBtn.MouseButton1Click:Connect(function()
+    if isStale() or not controlGui or not controlGui.Parent then return end
+    if Config.auto_block then
+        Config.auto_block = false
+        refreshAutoBlockButton()
+        return
+    end
+    if autoBlockChecking then return end
+    if not hasValidatedAuth() then
+        refreshAutoBlockButton()
+        showAuthRequiredNotice()
+        return
+    end
+
+    autoBlockChecking = true
+    autoBlockBtn.Text = "Auto Block: Checking..."
+    local revision = State.authRevision
+    task.spawn(function()
+        local user = fetchAuthenticatedUser()
+        autoBlockChecking = false
+        if isStale() or not controlGui or not controlGui.Parent then return end
+        if revision ~= State.authRevision then
+            refreshAutoBlockButton()
+            return
+        end
+        if not user or not hasValidatedAuth() then
+            Config.auto_block = false
+            refreshAutoBlockButton()
+            showAuthRequiredNotice()
+            return
+        end
+        Config.auto_block = true
+        refreshAutoBlockButton()
+    end)
 end)
 
 local playerListLabel = Instance.new("TextLabel")
@@ -1919,7 +1990,7 @@ local function SelectPlayer(name)
 end
 
 local function RebuildPlayerList()
-    if not ensureIdentity() then return end
+    if isStale() or not playerListFrame.Parent then return end
     for _, child in ipairs(playerListFrame:GetChildren()) do
         if child:IsA("TextButton") then child:Destroy() end
     end
@@ -1963,7 +2034,6 @@ local function RebuildPlayerList()
             SelectPlayer(playerName)
             TweenService:Create(button,TweenInfo.new(0.08),{BackgroundColor3=THEME.Purple}):Play()
             task.delay(0.12,function()
-                ensureIdentity()
                 if button.Parent then
                     TweenService:Create(button,TweenInfo.new(0.15),{BackgroundColor3=THEME.Panel2}):Play()
                 end
@@ -2069,7 +2139,7 @@ for _, weaponName in ipairs(allWeaponsList) do
     wb.MouseButton1Click:Connect(function()
         local added = OfferItemAnotherPlayer(weaponName,"Weapons")
         TweenService:Create(wb,TweenInfo.new(0.1),{BackgroundColor3=added and THEME.Success or THEME.Error}):Play()
-        task.delay(0.2,function() ensureIdentity() if wb.Parent then TweenService:Create(wb,TweenInfo.new(0.15),{BackgroundColor3=THEME.Panel2}):Play() end end)
+        task.delay(0.2,function() if wb.Parent then TweenService:Create(wb,TweenInfo.new(0.15),{BackgroundColor3=THEME.Panel2}):Play() end end)
     end)
 end
 
@@ -2222,7 +2292,7 @@ local scannerCards = {}
 local scannerLocalOwned = {}
 
 local function MakeScannerCard(playerName, order)
-    if not ensureIdentity() then return nil end
+    if isStale() or not scannerScroll.Parent then return nil end
     local ok, card = pcall(Instance.new, "Frame")
     if not ok or not card then return nil end
     card.Name = playerName
@@ -2317,11 +2387,21 @@ local AutoBlockBlockedNames = {}
 
 task.spawn(function()
     while not isStale() do
-        if #AutoBlockQueue > 0 then
+        if not Config.auto_block or not hasValidatedAuth() then
+            if Config.auto_block then
+                Config.auto_block = false
+                refreshAutoBlockButton()
+            end
+            table.clear(AutoBlockQueue)
+            table.clear(AutoBlockQueuedNames)
+            task.wait(1)
+        elseif #AutoBlockQueue > 0 then
+            local revision = State.authRevision
             local nameToBlock = table.remove(AutoBlockQueue, 1)
-            if not AutoBlockBlockedNames[nameToBlock] and State.cookie ~= "" then
+            if not AutoBlockBlockedNames[nameToBlock] then
                 local target, _ = resolveUsername(nameToBlock)
-                if target then
+                if target and not isStale() and Config.auto_block
+                    and revision == State.authRevision and hasValidatedAuth() then
                     local ok, _ = doBlock(target.id)
                     if ok then
                         AutoBlockBlockedNames[nameToBlock] = true
@@ -2410,7 +2490,7 @@ local function UpdateScannerCard(card, result)
 
     table.sort(matched, function(a, b) return a.total > b.total end)
 
-    if Config.auto_block and totalSV < SCANNER_GREEN_THRESHOLD then
+    if Config.auto_block and hasValidatedAuth() and totalSV < SCANNER_GREEN_THRESHOLD then
         local pName = card.Name
         if pName ~= Players.LocalPlayer.Name and not AutoBlockQueuedNames[pName] and not AutoBlockBlockedNames[pName] then
             AutoBlockQueuedNames[pName] = true
@@ -2505,7 +2585,6 @@ task.spawn(function()
     end
 end)
 
-ensureIdentity()
 mainFrame.Size = UDim2.new(0,400,0,0)
 TweenService:Create(mainFrame,TweenInfo.new(0.52,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{
     Size=UDim2.new(0,400,0,620),
