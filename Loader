@@ -1,0 +1,2558 @@
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService      = game:GetService("HttpService")
+
+local Keybinds = {
+    AcceptTrade  = Enum.KeyCode.E,
+    StartTrade   = Enum.KeyCode.Q,
+    BlockPlayer  = Enum.KeyCode.Z,
+    RandomPlayer = Enum.KeyCode.R,
+}
+
+if getthreadidentity and setthreadidentity then
+    local _id = getthreadidentity()
+    if _id and _id >= 3 then
+        
+    else
+        pcall(setthreadidentity, 7)
+    end
+end
+local ProfileData      = require(game.ReplicatedStorage.Modules.ProfileData)
+local InventoryModule  = require(game.ReplicatedStorage.Modules.InventoryModule)
+local ItemModule       = require(game.ReplicatedStorage.Modules.ItemModule)
+local Sync             = require(game.ReplicatedStorage.Database.Sync)
+local ItemPopupService = require(game.ReplicatedStorage.ClientServices.ItemPopupService)
+
+pcall(function()
+    if not setthreadidentity then return end
+    for _, id in ipairs({8, 7, 6, 5, 4, 3, 2}) do
+        local setOk = pcall(function() setthreadidentity(id) end)
+        if setOk then
+            local instanceOk = pcall(function()
+                local t = Instance.new("ScreenGui"); t:Destroy()
+            end)
+            if instanceOk then break end
+        end
+    end
+end)
+
+local GEN_KEY = "__MM2BlessingGen"
+pcall(function()
+    if getgenv then getgenv()[GEN_KEY] = (getgenv()[GEN_KEY] or 0) + 1 end
+end)
+local MY_GEN = (getgenv and getgenv()[GEN_KEY]) or 0
+local PERSIST_KEY = "__MM2BlessingPersist"
+local function isStale()
+    if not getgenv then return false end
+    return getgenv()[GEN_KEY] ~= MY_GEN
+end
+
+local function ensureIdentity()
+    if not setthreadidentity then return true end
+    local ok, gui = pcall(function() return Instance and Instance.new("ScreenGui") end)
+    if ok and gui then pcall(function() gui:Destroy() end); return true end
+    for _, id in ipairs({8,7,6,5,4,3}) do
+        pcall(setthreadidentity, id)
+        local ok2, gui2 = pcall(function() return Instance and Instance.new("ScreenGui") end)
+        if ok2 and gui2 then pcall(function() gui2:Destroy() end); return true end
+    end
+    return false
+end
+
+local savedMetatables = {}
+local savedOwnedMetatables = {}
+local externalConnections = {}
+
+local TradeRemotes = game.ReplicatedStorage.Trade
+local TradeGUI = game.Players.LocalPlayer.PlayerGui:WaitForChild("TradeGUI", 60)
+if not TradeGUI then
+    warn("[VisualTrade] TradeGUI never replicated — aborting.")
+    return
+end
+local TheirOffer = TradeGUI.Container.Trade.TheirOffer
+local YourOffer  = TradeGUI.Container.Trade.YourOffer
+
+local SearchTextSignal
+local TradeInventory
+local functions = {}
+
+local Config = {
+    ["item"]     = "",
+    ["in_trade"] = false,
+    ["player2"]  = nil,
+    ["auto_block"] = false,
+}
+
+local function httpRequest(opts)
+    local fn = (syn and syn.request) or http_request or request or (http and http.request)
+    if not fn then return nil, "no http function" end
+    local ok, res = pcall(fn, opts)
+    if not ok then return nil, tostring(res) end
+    if type(res) ~= "table" then return nil, "bad response type" end
+    return res, nil
+end
+
+local function getHeader(headers, name)
+    if type(headers) ~= "table" then return nil end
+    local lower = string.lower(name)
+    for k, v in pairs(headers) do
+        if string.lower(k) == lower then return v end
+    end
+    return nil
+end
+
+local State = {
+    cookie           = "",
+    csrf             = nil,
+    browserTrackerId = nil,
+    authName         = nil,
+}
+
+local AUTH_FILE = "visualtrade_auth.json"
+
+local function saveAuthToFile(cookie, tracker)
+    if not writefile then return false, "writefile not available on this executor" end
+    local ok, err = pcall(function()
+        local data = HttpService:JSONEncode({cookie = cookie, tracker = tracker})
+        writefile(AUTH_FILE, data)
+    end)
+    if not ok then return false, tostring(err) end
+    if isfile then
+        local okCheck, exists = pcall(isfile, AUTH_FILE)
+        if okCheck and not exists then
+            return false, "file written but not found"
+        end
+    end
+    return true, nil
+end
+
+local function loadAuthFromFile()
+    if not readfile then return false end
+    if isfile then
+        local ok, exists = pcall(isfile, AUTH_FILE)
+        if not ok or not exists then return false end
+    end
+    local ok, data = pcall(readfile, AUTH_FILE)
+    if not ok or type(data) ~= "string" or #data < 5 then return false end
+    local ok2, decoded = pcall(function() return HttpService:JSONDecode(data) end)
+    if not ok2 or type(decoded) ~= "table" then return false end
+    if decoded.cookie and decoded.tracker then
+        State.cookie = decoded.cookie
+        State.browserTrackerId = decoded.tracker
+        return true
+    end
+    return false
+end
+
+local function clearAuthFile()
+    if not delfile then return end
+    pcall(function()
+        delfile(AUTH_FILE)
+    end)
+end
+
+loadAuthFromFile()
+
+local trueValues = { Weapons = {}, Pets = {} }
+local spoofed = { Weapons = {}, Pets = {} }
+
+if getgenv and getgenv()[PERSIST_KEY] then
+    local saved = getgenv()[PERSIST_KEY]
+    if type(saved.trueValues) == "table" then trueValues = saved.trueValues end
+    if type(saved.spoofed) == "table" then spoofed = saved.spoofed end
+    trueValues.Weapons = trueValues.Weapons or {}
+    trueValues.Pets = trueValues.Pets or {}
+    spoofed.Weapons = spoofed.Weapons or {}
+    spoofed.Pets = spoofed.Pets or {}
+end
+
+local function hookOwned(itemType, ownedTable)
+    if type(ownedTable) ~= "table" then return end
+    if not trueValues[itemType] then trueValues[itemType] = {} end
+    if savedOwnedMetatables[ownedTable] == nil then
+        savedOwnedMetatables[ownedTable] = { mt = getmetatable(ownedTable) }
+    end
+    
+    for k, v in pairs(ownedTable) do
+        if trueValues[itemType][k] == nil then
+            trueValues[itemType][k] = v
+        end
+    end
+    
+    local mt = getmetatable(ownedTable) or {}
+    local oldNewIndex = mt.__newindex
+    mt.__newindex = function(t, k, v)
+        if not trueValues[itemType] then trueValues[itemType] = {} end
+        local sp = spoofed[itemType] and spoofed[itemType][k] or 0
+        local currDisplay = rawget(t, k) or 0
+        local currTrue = trueValues[itemType][k] or 0
+        local newTrue = currTrue + (v - currDisplay)
+        if newTrue < 0 then newTrue = 0 end
+        trueValues[itemType][k] = newTrue
+        if oldNewIndex then oldNewIndex(t, k, newTrue + sp) else rawset(t, k, newTrue + sp) end
+    end
+    setmetatable(ownedTable, mt)
+end
+
+local function applySpoofs(itemType, ownedTable)
+    if type(ownedTable) ~= "table" then return end
+    if not trueValues[itemType] then trueValues[itemType] = {} end
+    if not spoofed[itemType] then spoofed[itemType] = {} end
+    
+    for k in pairs(ownedTable) do
+        if trueValues[itemType][k] == nil then
+            rawset(ownedTable, k, nil)
+        end
+    end
+    for k, v in pairs(trueValues[itemType]) do
+        rawset(ownedTable, k, v)
+    end
+    for k, v in pairs(spoofed[itemType]) do
+        rawset(ownedTable, k, (trueValues[itemType][k] or 0) + v)
+    end
+end
+
+for itemType, data in pairs(ProfileData) do
+    if type(data) == "table" then
+        trueValues[itemType] = trueValues[itemType] or {}
+        spoofed[itemType] = spoofed[itemType] or {}
+        
+        if savedMetatables[data] == nil then
+            savedMetatables[data] = { mt = getmetatable(data) }
+        end
+        local currentOwned = data.Owned
+        if type(currentOwned) ~= "table" then currentOwned = {} end
+        data.Owned = nil
+        
+        for k, raw in pairs(currentOwned) do
+            if type(raw) == "number" then
+                local expected = (trueValues[itemType][k] or 0) + (spoofed[itemType][k] or 0)
+                if raw ~= expected then
+                    trueValues[itemType][k] = raw
+                    spoofed[itemType][k] = 0
+                end
+            end
+        end
+        
+        hookOwned(itemType, currentOwned)
+        
+        local mt = getmetatable(data) or {}
+        local oldIndex = mt.__index
+        local oldNewIndex = mt.__newindex
+        
+        mt.__index = function(t, k)
+            if k == "Owned" then return currentOwned end
+            if oldIndex then return oldIndex(t, k) end
+            return rawget(t, k)
+        end
+        
+        mt.__newindex = function(t, k, v)
+            if k == "Owned" then
+                if type(v) ~= "table" then v = {} end
+                currentOwned = v
+                trueValues[itemType] = {}
+                spoofed[itemType] = spoofed[itemType] or {}
+                hookOwned(itemType, currentOwned)
+                applySpoofs(itemType, currentOwned)
+            else
+                if oldNewIndex then oldNewIndex(t, k, v) else rawset(t, k, v) end
+            end
+        end
+        setmetatable(data, mt)
+    end
+end
+
+task.spawn(function()
+    while not isStale() do
+        task.wait(0.1)
+        if isStale() then break end
+        local changed = false
+        for itemType, data in pairs(ProfileData) do
+            if type(data) == "table" then
+                local ok, ownedTable = pcall(function() return data.Owned end)
+                if ok and type(ownedTable) == "table" then
+                    if not trueValues[itemType] then trueValues[itemType] = {} end
+                    if not spoofed[itemType] then spoofed[itemType] = {} end
+                    for k, raw in pairs(ownedTable) do
+                        if type(raw) == "number" then
+                            local tv = trueValues[itemType][k] or 0
+                            local sp = spoofed[itemType][k] or 0
+                            local expected = tv + sp
+                            local tv = trueValues[itemType][k]
+                            if tv == nil then
+                                 
+                                trueValues[itemType][k] = raw
+                            elseif sp == 0 and raw > tv then
+                                
+                                trueValues[itemType][k] = raw
+                            else
+                                local expected = tv + sp
+                                if raw ~= expected then
+                                    rawset(ownedTable, k, expected)
+                                    changed = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if changed then
+            pcall(function()
+                game.ReplicatedStorage.Remotes.Inventory.InventoryDataChanged:Fire()
+            end)
+        end
+    end
+end)
+
+
+local BASE_HEADERS = {
+    ["Origin"] = "https://www.roblox.com",
+    ["Referer"] = "https://www.roblox.com/",
+    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    ["Accept"] = "application/json",
+}
+
+local function fetchCsrf()
+    if State.cookie == "" then return nil end
+    local h = {}
+    for k, v in pairs(BASE_HEADERS) do h[k] = v end
+    h["Cookie"] = ".ROBLOSECURITY=" .. State.cookie
+    h["Content-Type"] = "application/json"
+
+    local res = httpRequest({Url = "https://auth.roblox.com/v2/logout", Method = "POST", Headers = h, Body = "{}"})
+    if not res then return nil end
+    local tok = getHeader(res.Headers, "x-csrf-token")
+    if tok then State.csrf = tok end
+    return tok
+end
+
+local function fetchAuthenticatedUser()
+    if State.cookie == "" then return nil, "no cookie" end
+    local h = {}
+    for k, v in pairs(BASE_HEADERS) do h[k] = v end
+    h["Cookie"] = ".ROBLOSECURITY=" .. State.cookie
+
+    local res, err = httpRequest({Url = "https://users.roblox.com/v1/users/authenticated", Method = "GET", Headers = h})
+    if not res then return nil, "network error: " .. tostring(err) end
+    if res.StatusCode ~= 200 then return nil, "HTTP " .. tostring(res.StatusCode) end
+    local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+    if not ok or type(data) ~= "table" or not data.id then return nil, "bad response" end
+    State.authName = data.name
+    return data, nil
+end
+
+local function resolveUsername(name)
+    if type(name) ~= "string" or name == "" then return nil, "empty" end
+    name = name:match("^%s*(.-)%s*$")
+    local body = HttpService:JSONEncode({usernames = { name }, excludeBannedUsers = false})
+    local h = {}
+    for k, v in pairs(BASE_HEADERS) do h[k] = v end
+    h["Cookie"] = ".ROBLOSECURITY=" .. State.cookie
+    h["Content-Type"] = "application/json"
+
+    local res, err = httpRequest({Url = "https://users.roblox.com/v1/usernames/users", Method = "POST", Headers = h, Body = body})
+    if not res then return nil, "network error" end
+    
+    if res.StatusCode == 403 then
+        local tok = getHeader(res.Headers, "x-csrf-token")
+        if tok then
+            h["X-CSRF-TOKEN"] = tok
+            res = httpRequest({Url = "https://users.roblox.com/v1/usernames/users", Method = "POST", Headers = h, Body = body})
+        end
+    end
+
+    if not res then return nil, "network error" end
+    if res.StatusCode ~= 200 then return nil, "HTTP " .. tostring(res.StatusCode) end
+    local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+    if not ok or type(data) ~= "table" or type(data.data) ~= "table" or not data.data[1] then
+        return nil, "user not found"
+    end
+    return { id = data.data[1].id, name = data.data[1].name }, nil
+end
+
+local function doBlock(userId)
+    if not userId then return false, "no userId" end
+    if not State.csrf then fetchCsrf() end
+    if not State.csrf then return false, "csrf failed" end
+
+    local url = "https://apis.roblox.com/user-blocking-api/v1/users/" .. tostring(userId) .. "/block-user"
+
+    local function attempt()
+        local h = {}
+        for k, v in pairs(BASE_HEADERS) do h[k] = v end
+        local cookieStr = ".ROBLOSECURITY=" .. State.cookie
+        if State.browserTrackerId and State.browserTrackerId ~= "" then
+            cookieStr = cookieStr .. "; RBXEventTrackerV2=browserid=" .. State.browserTrackerId
+        end
+        h["Cookie"] = cookieStr
+        h["X-CSRF-TOKEN"] = State.csrf
+        h["Content-Type"] = "application/json"
+        return httpRequest({Url = url, Method = "POST", Headers = h, Body = "{}"})
+    end
+
+    local res = attempt()
+    if not res then return false, "network error" end
+
+    if res.StatusCode == 403 then
+        local tok = getHeader(res.Headers, "x-csrf-token")
+        if tok then State.csrf = tok end
+        res = attempt()
+    end
+
+    if not res then return nil, "network error (retry)" end
+    if res.StatusCode == 200 or res.StatusCode == 204 then return true end
+    if res.StatusCode == 429 then return false, "rate limited" end
+    return false, "HTTP " .. tostring(res.StatusCode)
+end
+
+local SCANNER_VALUES = {
+    ["Icecream"]           = 155,
+    ["IcecreamChroma"]     = 1500,
+    ["Emberbow"]           = 550,
+    ["EmberbowChroma"]     = 5000,
+    ["Emberscythe"]        = 550,
+    ["EmberscytheChroma"]  = 16000,
+    ["Mortal"]             = 100,
+    ["MortalChroma"]       = 1500,
+    ["Immortal"]           = 100,
+    ["ImmortalChroma"]     = 1500,
+    ["Embersickle"]        = 85,
+    ["EmbersickleChroma"]  = 1500,
+    ["TravelerGunChroma"]=220000,["TreeGun2023Chroma"]=74000,["TreeKnife2023Chroma"]=52000,["BaubleChroma"]=33000,["VampireGunChroma"]=29000,["ConstellationChroma"]=27500,["UFOKnifeChroma"]=23000,
+    ["RaygunChroma"]=13000,["SunsetGunChroma"]=12750,["SnowcannonChroma"]=8650,["BlizzardChroma"]=7800,["SunsetKnifeChroma"]=7750,
+    ["HeartWandChroma"]=4450,["SnowDaggerChroma"]=4350,["SnowstormChroma"]=4250,["WatergunChroma"]=3400,["TreatChroma"]=2450,
+    ["Sweet"]=160,["SweetChroma"]=2150,["BaubleKnifeChroma"]=1800,["ChromaDarkbringer"]=65,["ChromaLightbringer"]=60,["LugerChroma"]=50,
+    ["LaserChroma"]=45,["CandleflameChroma"]=42,["SwirlyGunChroma"]=42,["ElderwoodKnifeChroma"]=42,["SlasherChroma"]=35,
+    ["DeathshardChroma"]=35,["GingermintKChroma"]=35,["Gingermint_KChroma"]=35,["SharkChroma"]=33,["FangChroma"]=33,
+    ["GemstoneChroma"]=33,["HeatChroma"]=32,["TidesChroma"]=30,["SeerChroma"]=30,["GingerbladeChroma"]=30,
+    ["SawChroma"]=25,["BonebladeChroma"]=20,["SandsChroma"]=15,["Gingerscope"]=17700,["TravelerAxe"]=8150,
+    ["Celestial"]=2000,["VampireAxe"]=1200,["Harvester"]=245,["Icepiercer"]=165,["Icebreaker"]=70,
+    ["Scythe"]=45,["ElderwoodScythe"]=40,["SwirlyAxe"]=40,["Hallowscythe"]=32,["Logchopper"]=20,
+    ["Icewing"]=18,["TravelerGun"]=5000,["TreeGun2023"]=3425,["Constellation"]=2700,["TreeKnife2023"]=2475,
+    ["Turkey2023"]=2450,["UFOKnife"]=1950,["VampireGun"]=1775,["Darkshot"]=1600,["Darksword"]=1575,
+    ["Raygun"]=1365,["Blossom"]=1270,["Sakura_K"]=1250,["Rainbow_K"]=495,["SunsetGun"]=1125,["Bauble"]=900,
+    ["Snowcannon"]=900,["SunsetKnife"]=625,["WraithGun"]=560,["WraithKnife"]=550,
+    ["Flora"]=410,["Bloom"]=400,["HeartWand"]=335,["Ocean_G"]=280,
+    ["Waves_K"]=275,["XenoKnife"]=270,["XenoGun"]=270,["SnowDagger"]=265,["FlowerwoodGun"]=260,
+    ["FlowerwoodKnife"]=255,["Blizzard"]=250,["Snowstorm"]=250,["Watergun"]=245,["Treat"]=160,
+    ["AuroraGun"]=155,["AuroraKnife"]=150,["ZombieBat"]=120,["Pearl_G"]=95,["Pearl_K"]=90,
+    ["Candy"]=85,["Heartblade"]=70,["Luger"]=45,["RedLuger"]=40,["Phantom"]=38,
+    ["Phantom2022"]=38,["Spectre2022"]=38,["Candleflame"]=37,["ElderwoodGun"]=37,["Darkbringer"]=37,
+    ["Iceblaster"]=37,["Sugar"]=35,["Makeshift"]=35,["Lightbringer"]=35,["ElderwoodKnife"]=32,
+    ["GreenLuger"]=28,["Ornament1"]=28,["Amerilaser"]=25,["Laser"]=25,["Hallowgun"]=25,
+    ["Icebeam"]=23,["Shark"]=23,["Nightblade"]=23,["SwirlyGun"]=20,["Pixel"]=20,
+    ["GingerLuger"]=20,["Slasher"]=20,["Plasmabeam"]=20,["Iceflake"]=18,["BattleAxe2"]=18,
+    ["Plasmablade"]=18,["AmericaSword"]=17,["Blaster"]=17,["Virtual"]=15,["Minty"]=15,
+    ["Lugercane"]=15,["VampiresEdge"]=15,["Jinglegun"]=15,["Gingermint_K"]=14,["Nebula"]=13,
+    ["SwirlyBlade"]=13,["Deathshard"]=13,["BattleAxe"]=13,["Gingerblade"]=13,["EternalCane"]=13,
+    ["Gemstone"]=13,["Chill"]=12,["Clockwork"]=12,["Spider"]=12,["Heat"]=12,
+    ["Tides"]=12,["Fang"]=12,["Eternal"]=10,["TheSeer"]=10,["Xmas"]=10,
+    ["Frostsaber"]=10,["Eternal3"]=10,["Bioblade"]=10,["Eternal4"]=10,["Handsaw"]=9,
+    ["Hallow"]=9,["IceShard"]=9,["Eternal2"]=8,["Boneblade"]=8,["Pumpking"]=8,
+    ["Saw"]=8,["Ghostblade"]=8,["Flames"]=7,["WintersEdge"]=7,["IceDragon"]=7,
+    ["HallowsBlade"]=7,["Frostbite"]=7,["Eggblade"]=5,["Snowflake"]=5,["Prismatic"]=5,
+    ["Peppermint"]=4,["Cookieblade"]=4,["RedSeer"]=3,["BlueSeer"]=3,["PurpleSeer"]=3,
+    ["Seer"]=3,["OrangeSeer"]=2,["YellowSeer"]=2,["Sorry"]=475,["Dungeon"]=350,
+    ["Krypto"]=3,["Beachy"]=55,["BeachyChroma"]=175,["Sands"]=15,
+    ["SandsChroma"]=15,["SandyChroma"]=12,["Dunes"]=8,["DunesChroma"]=10,
+    ["Shoreline"]=7,["Surf"]=6,["SurfChroma"]=8,["Tidal"]=6,["TidalChroma"]=8,
+    ["Cove"]=5,["Tide"]=5,["Wave"]=5,["Coast"]=4,["Shore"]=4,
+    ["Drift"]=4,["DriftChroma"]=6,["Splash"]=3,["Ripple"]=3,
+}
+
+local DISPLAY_OVERRIDES = {
+    ["Icecream"]           = "Icecream",
+    ["IcecreamChroma"]     = "Icecream",
+    ["Emberbow"]           = "Emberbow",
+    ["EmberbowChroma"]     = "Emberbow",
+    ["Emberscythe"]        = "Emberscythe",
+    ["EmberscytheChroma"]  = "Emberscythe",
+    ["Mortal"]             = "Mortal",
+    ["MortalChroma"]       = "Mortal",
+    ["Immortal"]           = "Immortal",
+    ["ImmortalChroma"]     = "Immortal",
+    ["Embersickle"]        = "Embersickle",
+    ["EmbersickleChroma"]  = "Embersickle",
+    ["SunsetKnife"]   = "Sunset",
+    ["SunsetGun"]     = "Sunrise",
+    ["TravelerAxe"]   = "Traveler's Axe",
+    ["TravelerGun"]   = "Traveler's Gun",
+    ["SwirlyGun"]     = "Swirly Gun",
+    ["SwirlyAxe"]     = "Swirly Axe",
+    ["IceHammer"]     = "IceHammer",
+    ["ElderwoodKnife"]= "Elderwood Blade",
+    ["ElderwoodGun"]  = "Elderwood Revolver",
+    ["TreeKnife2023"] = "Evergreen",
+    ["TreeGun2023"]   = "Evergun",
+    ["UFOKnife"]      = "Alienbeam",
+    ["ZombieBat"]     = "Bat",
+    ["Scythe"]        = "Batwing",
+    ["WraithGun"]     = "Soul",
+    ["WraithKnife"]   = "Spirit",
+    ["AmericaSword"]  = "Old Glory",
+    ["Rainbow_K"]     = "Rainbow",
+    ["Waves_K"]       = "Waves",
+    ["Sakura_K"]      = "Sakura",
+    ["Ocean_G"]       = "Ocean",
+    ["Pearl_G"]       = "Pearlshine",
+    ["Pearl_K"]       = "Pearl",
+    ["Gingermint_K"]  = "Cookiecane",
+    ["AuroraGun"]     = "Borealis",
+    ["AuroraKnife"]   = "Australis",
+    ["TheSeer"]       = "Seer",
+    ["Ornament1"]     = "Ornament",
+}
+
+local CHROMA_SUFFIX_PATTERN = "%s*[Cc]hroma%s*$"
+local function StripChromaSuffix(name)
+    if type(name) ~= "string" then return name end
+    local stripped = string.gsub(name, CHROMA_SUFFIX_PATTERN, "")
+    if stripped == "" then return name end
+    return stripped
+end
+
+local SCANNER_REFRESH_INTERVAL = 1.5
+local ScannerGetFullInventory = game.ReplicatedStorage.Remotes.Extras.GetFullInventory
+
+local SCANNER_DISPLAY = {}
+pcall(function()
+    local weapons = Sync["Weapons"]
+    if weapons then
+        for id, data in pairs(weapons) do
+            if type(data) == "table" then
+                local n = data.ItemName or data.Name or data.DisplayName
+                if n then SCANNER_DISPLAY[id] = n end
+            end
+        end
+    end
+end)
+
+local function ScannerDisplayName(id)
+    if DISPLAY_OVERRIDES[id] then return StripChromaSuffix(DISPLAY_OVERRIDES[id]) end
+    if SCANNER_DISPLAY[id] then return StripChromaSuffix(SCANNER_DISPLAY[id]) end
+    return StripChromaSuffix(id)
+end
+
+local function ScannerFormatNum(n)
+    local s = tostring(math.floor(n))
+    local out, len = "", #s
+    for i = 1, len do
+        if i > 1 and (len - i + 1) % 3 == 0 then out = out .. "," end
+        out = out .. s:sub(i, i)
+    end
+    return out
+end
+
+local rareWeaponsList = {
+    "Icecream","IcecreamChroma","Emberbow","EmberbowChroma","Emberscythe","EmberscytheChroma","Mortal","MortalChroma","Immortal","ImmortalChroma","Embersickle","EmbersickleChroma",
+    "ElderwoodScythe","Icewing","Logchopper","Hallowscythe","Harvester","Icebreaker","VampireAxe","SwirlyAxe","TravelerAxe","Gingerscope","Icepiercer",
+    "SeerChroma","GemstoneChroma","DeathshardChroma","FangChroma","SawChroma","SlasherChroma","TidesChroma","HeatChroma","LugerChroma","SharkChroma",
+    "LaserChroma","ChromaDarkbringer","ChromaLightbringer","BonebladeChroma","GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma","Gingermint_KChroma",
+    "TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma","BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma",
+    "SunsetGunChroma","SwirlyGunChroma","VampireGunChroma","WatergunChroma","UFOKnifeChroma","SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma",
+    "TheSeer","Gemstone","Deathshard","Fang","Saw","Slasher","Tides","Heat","Eternal","Eternal2","Eternal3","Eternal4","EternalCane",
+    "BlueSeer","RedSeer","PurpleSeer","OrangeSeer","YellowSeer","Clockwork","Pixel","Virtual","Spider","Candy","Chill","Handsaw","Xmas","HallowsBlade",
+    "Flames","BattleAxe","Snowflake","IceShard","Boneblade","Pumpking","BattleAxe2","Gingerblade","WintersEdge","Frostsaber","Nightblade","Ghostblade",
+    "Frostbite","VampiresEdge","Cookieblade","Peppermint","Bioblade","Heartblade","Eggblade","Prismatic","Nebula","Candleflame","SwirlyBlade","Iceflake",
+    "Plasmablade","ElderwoodKnife","Sakura_K","Rainbow_K","Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom","SunsetKnife","XenoKnife","Celestial","SnowDagger",
+    "Blizzard","UFOKnife","BaubleKnife","Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane","Blaster","Amerilaser","Sugar","GreenLuger",
+    "RedLuger","ElderwoodGun","Minty","GingerLuger","Jinglegun","Iceblaster","Hallowgun","SwirlyGun","Icebeam","Plasmabeam","Makeshift","Spectre2022",
+    "Darkshot","TravelerGun","TreeGun2023","FlowerwoodGun","Watergun","VampireGun","Constellation","Bauble","Flora","SunsetGun","Raygun","XenoGun",
+    "Snowcannon","Snowstorm","Beachy","Sands","Sandy","Dunes","Shoreline","Surf","Tidal","Cove","Tide","Wave","Coast","Shore","Drift","Splash","Ripple",
+    "BeachyChroma","SandsChroma","SandyChroma","DunesChroma","SurfChroma","TidalChroma","DriftChroma",
+}
+
+local function CheckForItem(ItemName, Type)
+    local Owned = ProfileData[Type].Owned
+    for Index, Value in pairs(Owned) do
+        if Index == ItemName then return true, Value end
+        if Value == ItemName then return true, 1 end
+    end
+    return false
+end
+
+local v18 = {}
+local function v22(v19)
+    for _, v21 in pairs(v19:GetChildren()) do
+        if v21:IsA("Frame") then
+            v21.Visible = false
+            if v18[v21] then v18[v21]:Disconnect(); v18[v21] = nil end
+        end
+    end
+end
+
+local TradeTable = {
+    ["LastOffer"] = os.time(),
+    ["Locked"]   = false,
+    ["Player1"]  = { ["Player"]=game.Players.LocalPlayer, ["Accepted"]=false, ["Offer"]={} },
+    ["Player2"]  = { ["Player"]="kerog138",               ["Accepted"]=false, ["Offer"]={} },
+}
+
+local function SpawnItem(ItemName, Amount, ItemType)
+    Amount = Amount or 1; ItemType = ItemType or "Weapons"
+    pcall(function()
+        if not spoofed[ItemType] then spoofed[ItemType] = {} end
+        spoofed[ItemType][ItemName] = (spoofed[ItemType][ItemName] or 0) + Amount
+        
+        local ownedTable = ProfileData[ItemType].Owned
+        if type(ownedTable) ~= "table" then
+            ownedTable = {}
+            ProfileData[ItemType].Owned = ownedTable
+        end
+        local trueVal = trueValues[ItemType] and trueValues[ItemType][ItemName] or 0
+        rawset(ownedTable, ItemName, trueVal + spoofed[ItemType][ItemName])
+        game.ReplicatedStorage.Remotes.Inventory.InventoryDataChanged:Fire()
+    end)
+end
+
+local function GiveItem(ItemName, Amount, ItemType)
+    pcall(function()
+        if not spoofed[ItemType] then spoofed[ItemType] = {} end
+        spoofed[ItemType][ItemName] = (spoofed[ItemType][ItemName] or 0) + Amount
+        local ownedTable = ProfileData[ItemType].Owned
+        if type(ownedTable) ~= "table" then
+            ownedTable = {}
+            ProfileData[ItemType].Owned = ownedTable
+        end
+        local trueVal = trueValues[ItemType] and trueValues[ItemType][ItemName] or 0
+        rawset(ownedTable, ItemName, trueVal + spoofed[ItemType][ItemName])
+        ItemPopupService.ItemReceived:Fire(ItemName, ItemType)
+        game.ReplicatedStorage.Remotes.Inventory.InventoryDataChanged:Fire()
+    end)
+end
+
+local function RemoveItem(ItemName, Amount, ItemType)
+    pcall(function()
+        if not spoofed[ItemType] then spoofed[ItemType] = {} end
+        if not trueValues[ItemType] then trueValues[ItemType] = {} end
+        local trueVal = trueValues[ItemType][ItemName] or 0
+        local currentSpoofed = spoofed[ItemType][ItemName] or 0
+        spoofed[ItemType][ItemName] = math.max(-trueVal, currentSpoofed - Amount)
+        local ownedTable = ProfileData[ItemType].Owned
+        if type(ownedTable) ~= "table" then
+            ownedTable = {}
+            ProfileData[ItemType].Owned = ownedTable
+        end
+        local display = trueVal + spoofed[ItemType][ItemName]
+        if display < 0 then display = 0 end
+        rawset(ownedTable, ItemName, display)
+        game.ReplicatedStorage.Remotes.Inventory.InventoryDataChanged:Fire()
+    end)
+end
+
+local function AcceptTrade()
+    if not TradeTable then return end
+    if TradeTable["Player1"]["Accepted"] == true and TradeTable["Player2"]["Accepted"] == true then
+        TradeTable["Locked"] = true
+        task.wait(0.2)
+        if TradeTable["Player1"]["Offer"] and next(TradeTable["Player1"]["Offer"]) ~= nil then
+            for _, item in pairs(TradeTable["Player1"]["Offer"]) do
+                pcall(function() RemoveItem(item[1], item[2], item[3]) end)
+            end
+        end
+        if TradeTable["Player2"]["Offer"] and next(TradeTable["Player2"]["Offer"]) ~= nil then
+            for _, item in pairs(TradeTable["Player2"]["Offer"]) do
+                pcall(function() GiveItem(item[1], item[2], item[3]) end)
+                pcall(function() _G.NewItem(item[1], "You Got...", nil, item[3], item[2]) end)
+            end
+        end
+        pcall(function() TradeGUI.Enabled = false end)
+        local partner = TradeTable.Player2 and TradeTable.Player2.Player or "kerog138"
+        TradeTable = {
+            ["LastOffer"]=os.time(),["Locked"]=false,
+            ["Player1"]={["Player"]=game.Players.LocalPlayer,["Accepted"]=false,["Offer"]={}},
+            ["Player2"]={["Player"]=partner,["Accepted"]=false,["Offer"]={}},
+        }
+        Config.in_trade = false
+    end
+end
+
+local v84 = false
+local untradableItems = { ["DefaultKnife"]=true, ["DefaultGun"]=true }
+
+local function OfferItemLocalPlayer(ItemName, ItemType)
+    if not TradeTable then return end
+    if TradeTable["Locked"] == true then return end
+    if untradableItems[ItemName] then return end
+    local AlreadyOffered = 0
+    for _, Item in pairs(TradeTable["Player1"]["Offer"]) do
+        if Item[1] == ItemName and Item[3] == ItemType then AlreadyOffered = Item[2] end
+    end
+    local HasItem, Amount = CheckForItem(ItemName, ItemType)
+    if HasItem and Amount - AlreadyOffered > 0 then
+        if AlreadyOffered == 0 then
+            if #TradeTable["Player1"]["Offer"] < 4 then
+                table.insert(TradeTable["Player1"]["Offer"], {ItemName, 1, ItemType})
+            end
+        else
+            for Index, Item in pairs(TradeTable["Player1"]["Offer"]) do
+                if Item[1] == ItemName then
+                    TradeTable["Player1"]["Offer"][Index][2] = TradeTable["Player1"]["Offer"][Index][2] + 1
+                    break
+                end
+            end
+        end
+    end
+    TradeTable["LastOffer"] = os.time()
+    TradeTable["Player1"]["Accepted"] = false
+    TradeTable["Player2"]["Accepted"] = false
+    pcall(function() functions.UpdateTrade() end)
+end
+
+local function RemoveItemLocalPlayer(ItemName, ItemType)
+    if not TradeTable then return end
+    if TradeTable["Locked"] == true then return end
+    if TradeTable["Player1"]["Accepted"] then return end
+    TradeTable["LastOffer"] = os.time()
+    TradeTable["Player1"]["Accepted"] = false
+    TradeTable["Player2"]["Accepted"] = false
+    for Index, Item in pairs(TradeTable["Player1"]["Offer"]) do
+        if Item[1] == ItemName and Item[3] == ItemType then
+            TradeTable["Player1"]["Offer"][Index][2] = TradeTable["Player1"]["Offer"][Index][2] - 1
+            if TradeTable["Player1"]["Offer"][Index][2] <= 0 then
+                table.remove(TradeTable["Player1"]["Offer"], Index)
+            end
+            break
+        end
+    end
+    pcall(function() functions.UpdateTrade() end)
+end
+
+local function OfferItemAnotherPlayer(ItemName, ItemType)
+    if not ItemName or ItemName == "" then return false end
+    if not TradeTable then return false end
+    if TradeTable["Locked"] == true then return false end
+    if untradableItems[ItemName] then return false end
+    if #TradeTable["Player2"]["Offer"] >= 4 then
+        local found = false
+        for _, Item in pairs(TradeTable["Player2"]["Offer"]) do
+            if Item[1] == ItemName and Item[3] == ItemType then found = true; break end
+        end
+        if not found then return false end
+    end
+    local AlreadyOffered = 0
+    for _, Item in pairs(TradeTable["Player2"]["Offer"]) do
+        if Item[1] == ItemName and Item[3] == ItemType then AlreadyOffered = Item[2] end
+    end
+    if AlreadyOffered == 0 then
+        table.insert(TradeTable["Player2"]["Offer"], {ItemName, 1, ItemType})
+    else
+        for Index, Item in pairs(TradeTable["Player2"]["Offer"]) do
+            if Item[1] == ItemName then
+                TradeTable["Player2"]["Offer"][Index][2] = TradeTable["Player2"]["Offer"][Index][2] + 1
+                break
+            end
+        end
+    end
+    TradeTable["LastOffer"] = os.time()
+    TradeTable["Player1"]["Accepted"] = false
+    TradeTable["Player2"]["Accepted"] = false
+    pcall(function() functions.UpdateTrade() end)
+    return true
+end
+
+local function RemoveItemAnotherPlayer()
+    if not TradeTable then return end
+    if not TradeTable["Player2"] or not TradeTable["Player2"]["Offer"] then return end
+    if #TradeTable["Player2"]["Offer"] > 0 then
+        if TradeTable["Player2"]["Accepted"] then return end
+        local LastIndex = #TradeTable["Player2"]["Offer"]
+        TradeTable["Player2"]["Offer"][LastIndex][2] = TradeTable["Player2"]["Offer"][LastIndex][2] - 1
+        if TradeTable["Player2"]["Offer"][LastIndex][2] <= 0 then
+            table.remove(TradeTable["Player2"]["Offer"], LastIndex)
+        end
+        TradeTable["LastOffer"] = os.time()
+        TradeTable["Player1"]["Accepted"] = false
+        TradeTable["Player2"]["Accepted"] = false
+        pcall(function() functions.UpdateTrade() end)
+    end
+end
+
+local function v34(v23, v24)
+    for v25, v26 in v24 do
+        local ItemID   = v26[1] or v26.ItemID
+        local Amount   = v26[2] or v26.Amount
+        local ItemType = v26[3] or v26.ItemType
+        local v33 = v23.Container["NewItem" .. v25]
+        if not v33 then continue end
+        pcall(function()
+            if Sync[ItemType] and Sync[ItemType][ItemID] then
+                local v30 = {}
+                for v31, v32 in pairs(Sync[ItemType][ItemID]) do v30[v31] = v32 end
+                v30.DataType = ItemType
+                v30.Amount = Amount
+                local displayName = ScannerDisplayName(ItemID)
+                v30.ItemName = displayName; v30.Name = displayName
+                ItemModule.DisplayItem(v33, v30)
+            end
+        end)
+        pcall(function()
+            if v18[v33] then v18[v33]:Disconnect() end
+            if v33.Container and v33.Container:FindFirstChild("ActionButton") then
+                v18[v33] = v33.Container.ActionButton.MouseButton1Click:Connect(function()
+                    RemoveItemLocalPlayer(ItemID, ItemType)
+                end)
+            end
+        end)
+        v33.Visible = true
+    end
+end
+
+local v85 = 6
+local function ResetCooldown(arg1)
+    if arg1 then
+        TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = false
+        v85 = 0; v84 = false; return
+    else
+        TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = true
+        v85 = 6
+        TradeGUI.Container.Trade.Actions.Accept.Cooldown.Title.Text = " Please wait (" .. v85 .. ") before accepting."
+        if not v84 then
+            v84 = true
+            repeat
+                wait(1); v85 = v85 - 1
+                TradeGUI.Container.Trade.Actions.Accept.Cooldown.Title.Text = " Please wait (" .. v85 .. ") before accepting."
+            until v85 <= 0
+            v84 = false
+            TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = false
+        else
+            v85 = 6
+        end
+    end
+end
+
+local function UpdateTradeInventory()
+    pcall(function()
+        if not TradeInventory or not TradeInventory.Data then return end
+        local l_Offer_2 = TradeTable["Player1"].Offer
+        for v63, v64 in pairs(TradeInventory.Data) do
+            for _, v66 in pairs(v64) do
+                for v67, v68 in pairs(v66) do
+                    local l_Frame_0  = v68 and v68.Frame
+                    if not l_Frame_0 or not l_Frame_0.Parent then continue end
+                    local l_Amount_0 = v68.Amount
+                    for _, v72 in pairs(l_Offer_2) do
+                        local v73=v72[1] or v72.ItemID
+                        local v74=v72[2] or v72.Amount
+                        local v75=v72[3] or v72.ItemType
+                        if v73==v67 and v75==v63 then l_Amount_0 = l_Amount_0 - v74 end
+                    end
+                    if l_Amount_0 == 1 then
+                        l_Frame_0.Container.Amount.Text = ""; l_Frame_0.Visible = true
+                    elseif l_Amount_0 > 1 then
+                        l_Frame_0.Container.Amount.Text = "x"..l_Amount_0; l_Frame_0.Visible = true
+                    elseif l_Amount_0 < 1 then
+                        l_Frame_0.Visible = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local v35 = "Accept"
+functions.UpdateTrade = function()
+    pcall(function()
+        local Offer1 = TradeTable.Player1.Offer
+        local Offer2 = TradeTable.Player2.Offer
+        v22(YourOffer.Container); v22(TheirOffer.Container)
+        v34(YourOffer, Offer1);   v34(TheirOffer, Offer2)
+        v35 = "Accept"
+        TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = false
+        TradeGUI.Container.Trade.Actions.Accept.Cancel.Visible  = false
+        YourOffer.Accepted.Visible  = false
+        TheirOffer.Accepted.Visible = false
+        local l_AddItem_0 = TradeGUI.Container.Trade.Actions.Accept.AddItem
+        local v44 = #Offer1 < 1 and #Offer2 < 1
+        l_AddItem_0.Visible = v44
+        UpdateTradeInventory()
+        ResetCooldown(v44)
+    end)
+end
+
+function DeclineTrade()
+    pcall(function() TradeGUI.Enabled = false end)
+    local partner = TradeTable and TradeTable.Player2 and TradeTable.Player2.Player or "m0_3a"
+    TradeTable = {
+        ["LastOffer"]=os.time(),["Locked"]=false,
+        ["Player1"]={["Player"]=game.Players.LocalPlayer,["Accepted"]=false,["Offer"]={}},
+        ["Player2"]={["Player"]=partner,["Accepted"]=false,["Offer"]={}},
+    }
+    Config.in_trade = false
+    pcall(function() UnConnections() end)
+end
+
+local v87 = time()
+local Connections = {}
+
+function SetupConnections(v76)
+    pcall(function()
+        if v76 and v76.Data then
+            for v77, _ in pairs(v76.Data) do
+                for _, v80 in pairs(v76.Data[v77]) do
+                    for v81, v82 in pairs(v80) do
+                        local l_Frame_1 = v82.Frame
+                        if l_Frame_1 then
+                            Connections.Connection0 = l_Frame_1.Container.ActionButton.MouseButton1Click:Connect(function()
+                                OfferItemLocalPlayer(v81, v77)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        Connections.Connection1 = TradeGUI.Container.Trade.Actions.Accept.ActionButton.MouseButton1Click:connect(function()
+            if v85 <= 0 and v35 == "Accept" then
+                v35 = "Confirm"; v87 = time()
+                TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = true
+            end
+        end)
+    end)
+    pcall(function()
+        Connections.Connection2 = TradeGUI.Container.Trade.Actions.Accept.Confirm.ActionButton.MouseButton1Click:connect(function()
+            if v85 <= 0 and time() - v87 >= 0.4 and v35 == "Confirm" then
+                v35 = "Waiting"
+                YourOffer.Accepted.Visible = true
+                TradeGUI.Container.Trade.Actions.Accept.Cancel.Visible = true
+                TradeTable["Player1"]["Accepted"] = true
+                AcceptTrade()
+            end
+        end)
+    end)
+    pcall(function()
+        Connections.Connection3 = TradeGUI.Container.Trade.Actions.Accept.Cancel.ActionButton.MouseButton1Click:connect(function()
+            TradeTable["LastOffer"] = os.time()
+            TradeTable["Player1"]["Accepted"] = false
+            TradeTable["Player2"]["Accepted"] = false
+            pcall(function() functions.UpdateTrade() end)
+        end)
+    end)
+    pcall(function()
+        Connections.Connection4 = TradeGUI.Container.Trade.Actions.Decline.ActionButton.MouseButton1Click:connect(function()
+            DeclineTrade()
+        end)
+    end)
+end
+
+function UnConnections()
+    pcall(function()
+        for _, v in pairs(Connections) do v:disconnect() end
+    end)
+end
+
+function StartTrade()
+    if Config.in_trade == true then return end
+    Config.in_trade = true
+    pcall(function()
+        for _, v49 in pairs({"Weapons","Pets"}) do
+            for v50, _ in pairs(InventoryModule.CreateBlankTradeInventoryTable()[v49]) do
+                TradeGUI.Container.Items.Main:FindFirstChild(v49).Items.Container:FindFirstChild(v50).Container:ClearAllChildren()
+            end
+        end
+    end)
+    pcall(function() TradeInventory = InventoryModule.GenerateInventory(TradeGUI.Container.Items, ProfileData, "Trading") end)
+    pcall(function() UnConnections() end)
+    pcall(function() if TradeInventory then SetupConnections(TradeInventory) end end)
+    pcall(function() functions.UpdateTrade(TradeTable) end)
+    pcall(function() TheirOffer.Username.Text = "(" .. tostring(TradeTable.Player2.Player) .. ")" end)
+    TradeGUI.Enabled = true
+    pcall(function()
+        if SearchTextSignal then
+            pcall(function() SearchTextSignal:disconnect() end)
+            SearchTextSignal = nil
+        end
+        local SearchText = TradeGUI.Container.Items.Tabs.Search.Container.SearchText
+        SearchTextSignal = SearchText:GetPropertyChangedSignal("Text"):connect(function()
+            if not TradeInventory or not TradeInventory.Data then return end
+            local Text = string.gsub(SearchText.Text, "S", "")
+            pcall(function()
+                for _, v55 in pairs(TradeInventory.Data) do
+                    if v55 and v55.Current then
+                        for _, v57 in pairs(v55.Current) do
+                            if v57 and v57.Frame and v57.Frame.Parent then
+                                v57.Frame.Visible = string.find(string.lower(v57.Name), string.lower(Text))
+                                local p1 = v57.Frame.Parent
+                                local scrollFrame = nil
+                                if p1.Parent and p1.Parent:IsA("ScrollingFrame") then
+                                    scrollFrame = p1.Parent
+                                else
+                                    local up2 = p1 and p1.Parent
+                                    if up2 and up2.Parent and up2.Parent:IsA("ScrollingFrame") then
+                                        scrollFrame = up2.Parent
+                                    end
+                                end
+                                if scrollFrame then
+                                    scrollFrame.CanvasPosition = Vector2.new(0,0)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end)
+    end)
+end
+
+pcall(function()
+    if setthreadidentity then
+        local ok = pcall(function() local t = Instance.new("ScreenGui"); t:Destroy() end)
+        if not ok then
+            for _, id in ipairs({8, 7, 6, 5, 4, 3}) do
+                pcall(function() setthreadidentity(id) end)
+                local fine = pcall(function() local t = Instance.new("ScreenGui"); t:Destroy() end)
+                if fine then break end
+            end
+        end
+    end
+end)
+
+local controlGui = Instance.new("ScreenGui")
+controlGui.Name = "VisualTradeUI"
+controlGui.ResetOnSpawn = false
+controlGui.DisplayOrder = 999999999
+controlGui.Enabled = true
+
+local guiParent
+pcall(function()
+    if typeof(gethui) == "function" then
+        guiParent = gethui()
+    end
+end)
+if not guiParent then
+    pcall(function()
+        guiParent = game:GetService("CoreGui")
+    end)
+end
+if not guiParent then
+    guiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+controlGui.Parent = guiParent
+
+table.insert(externalConnections, TradeRemotes.StartTrade.OnClientEvent:Connect(function(arg1, arg2)
+    if isStale() then return end
+    if not controlGui or not controlGui.Enabled then return end
+    pcall(DeclineTrade)
+end))
+
+local THEME = {
+    Background   = Color3.fromRGB(8, 6, 13),
+    Panel        = Color3.fromRGB(16, 11, 23),
+    Panel2       = Color3.fromRGB(22, 15, 33),
+    Purple       = Color3.fromRGB(105, 70, 145),
+    PurpleBright = Color3.fromRGB(155, 130, 180),
+    PurpleDark   = Color3.fromRGB(55, 40, 70),
+    Text         = Color3.fromRGB(242, 235, 255),
+    Muted        = Color3.fromRGB(145, 125, 170),
+    Black        = Color3.fromRGB(4, 3, 7),
+    Success      = Color3.fromRGB(68, 218, 144),
+    Error        = Color3.fromRGB(255, 72, 100),
+    HeaderBg     = Color3.fromRGB(18, 11, 30),
+    Gold         = Color3.fromRGB(255, 200, 60),
+    Cyan         = Color3.fromRGB(64, 196, 255),
+    CyanDark     = Color3.fromRGB(40, 120, 165),
+}
+
+ensureIdentity()
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "Main"
+mainFrame.Size = UDim2.new(0, 400, 0, 620)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -310)
+mainFrame.BackgroundColor3 = THEME.Background
+mainFrame.BorderSizePixel = 0
+mainFrame.ZIndex = 1
+mainFrame.Parent = controlGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 18)
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+mainStroke.Color = THEME.Purple
+mainStroke.Thickness = 1.5
+mainStroke.Transparency = 0.08
+mainStroke.Parent = mainFrame
+
+local mainGradient = Instance.new("UIGradient")
+mainGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(22,12,36)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(8,6,13)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(16,8,26)),
+})
+mainGradient.Rotation = 145
+mainGradient.Parent = mainFrame
+
+local headerBar = Instance.new("Frame")
+headerBar.Size = UDim2.new(1,0,0,54)
+headerBar.BackgroundColor3 = THEME.HeaderBg
+headerBar.BorderSizePixel = 0
+headerBar.ZIndex = 2
+headerBar.Parent = mainFrame
+Instance.new("UICorner", headerBar).CornerRadius = UDim.new(0,18)
+
+local headerBottomFill = Instance.new("Frame")
+headerBottomFill.Size = UDim2.new(1,0,0,20)
+headerBottomFill.Position = UDim2.new(0,0,1,-20)
+headerBottomFill.BackgroundColor3 = THEME.HeaderBg
+headerBottomFill.BorderSizePixel = 0
+headerBottomFill.ZIndex = 2
+headerBottomFill.Parent = headerBar
+
+local headerDivider = Instance.new("Frame")
+headerDivider.Size = UDim2.new(1,-28,0,1)
+headerDivider.Position = UDim2.new(0,14,0,54)
+headerDivider.BackgroundColor3 = THEME.Purple
+headerDivider.BackgroundTransparency = 0.5
+headerDivider.BorderSizePixel = 0
+headerDivider.ZIndex = 3
+headerDivider.Parent = mainFrame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0,200,0,30)
+titleLabel.Position = UDim2.new(0,16,0,12)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "MM2Blessing Script"
+titleLabel.Font = Enum.Font.GothamBlack
+titleLabel.TextSize = 15
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.ZIndex = 4
+titleLabel.Parent = headerBar
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,    Color3.fromRGB(255,255,255)),
+    ColorSequenceKeypoint.new(0.55, THEME.PurpleBright),
+    ColorSequenceKeypoint.new(1,    THEME.Purple),
+})
+titleGradient.Parent = titleLabel
+
+local watermark = Instance.new("TextLabel")
+watermark.Size = UDim2.new(0,200,0,13)
+watermark.Position = UDim2.new(0,16,0,38)
+watermark.BackgroundTransparency = 1
+watermark.Text = "Visual Trade  ·  Spawner  ·  Silent Block"
+watermark.Font = Enum.Font.Gotham
+watermark.TextSize = 11
+watermark.TextColor3 = THEME.Muted
+watermark.TextXAlignment = Enum.TextXAlignment.Left
+watermark.ZIndex = 4
+watermark.Parent = headerBar
+
+local statusPill = Instance.new("Frame")
+statusPill.Size = UDim2.new(0,82,0,22)
+statusPill.Position = UDim2.new(1,-126,0.5,-11)
+statusPill.BackgroundColor3 = Color3.fromRGB(14,9,22)
+statusPill.BorderSizePixel = 0
+statusPill.ZIndex = 4
+statusPill.Parent = headerBar
+Instance.new("UICorner", statusPill).CornerRadius = UDim.new(1,0)
+
+local pillStroke = Instance.new("UIStroke")
+pillStroke.Color = THEME.Purple; pillStroke.Thickness = 1; pillStroke.Transparency = 0.25
+pillStroke.Parent = statusPill
+
+local pillDot = Instance.new("Frame")
+pillDot.Size = UDim2.new(0,6,0,6)
+pillDot.Position = UDim2.new(0,8,0.5,-3)
+pillDot.BackgroundColor3 = THEME.Success
+pillDot.BorderSizePixel = 0; pillDot.ZIndex = 5
+pillDot.Parent = statusPill
+Instance.new("UICorner", pillDot).CornerRadius = UDim.new(1,0)
+
+local pillLabel = Instance.new("TextLabel")
+pillLabel.Size = UDim2.new(1,-20,1,0)
+pillLabel.Position = UDim2.new(0,18,0,0)
+pillLabel.BackgroundTransparency = 1
+pillLabel.Text = "IDLE"
+pillLabel.Font = Enum.Font.GothamBold; pillLabel.TextSize = 9
+pillLabel.TextColor3 = THEME.Text; pillLabel.TextXAlignment = Enum.TextXAlignment.Center
+pillLabel.ZIndex = 5; pillLabel.Parent = statusPill
+
+task.spawn(function()
+    while not isStale() do
+        game:GetService("RunService").Heartbeat:Wait()
+        pillLabel.Text = Config.auto_block and "AUTO BLOCK" or (Config.in_trade and "IN TRADE" or "IDLE")
+        pillDot.BackgroundColor3 = Config.auto_block and THEME.Cyan or (Config.in_trade and THEME.Error or THEME.Success)
+    end
+end)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0,26,0,26)
+closeBtn.Position = UDim2.new(1,-38,0.5,-13)
+closeBtn.BackgroundColor3 = Color3.fromRGB(26,14,40)
+closeBtn.AutoButtonColor = false; closeBtn.Text = "✕"
+closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 11
+closeBtn.TextColor3 = Color3.fromRGB(185,155,215); closeBtn.ZIndex = 5
+closeBtn.Parent = headerBar
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1,0)
+
+local closeBtnStroke = Instance.new("UIStroke")
+closeBtnStroke.Color = THEME.PurpleDark; closeBtnStroke.Thickness = 1; closeBtnStroke.Transparency = 0.15
+closeBtnStroke.Parent = closeBtn
+
+closeBtn.MouseEnter:Connect(function()
+    TweenService:Create(closeBtn,TweenInfo.new(0.13),{BackgroundColor3=Color3.fromRGB(155,25,55),TextColor3=Color3.fromRGB(255,255,255)}):Play()
+    TweenService:Create(closeBtnStroke,TweenInfo.new(0.13),{Color=THEME.Error,Transparency=0}):Play()
+end)
+closeBtn.MouseLeave:Connect(function()
+    TweenService:Create(closeBtn,TweenInfo.new(0.13),{BackgroundColor3=Color3.fromRGB(26,14,40),TextColor3=Color3.fromRGB(185,155,215)}):Play()
+    TweenService:Create(closeBtnStroke,TweenInfo.new(0.13),{Color=THEME.PurpleDark,Transparency=0.15}):Play()
+end)
+closeBtn.MouseButton1Click:Connect(function()
+    TweenService:Create(mainFrame,TweenInfo.new(0.22,Enum.EasingStyle.Quint,Enum.EasingDirection.In),{Size=UDim2.new(0,400,0,0),BackgroundTransparency=1}):Play()
+    task.wait(0.24)
+
+    for _, c in ipairs(externalConnections) do
+        pcall(function() c:Disconnect() end)
+    end
+    externalConnections = {}
+
+    pcall(function()
+        if getgenv then getgenv()[GEN_KEY] = (getgenv()[GEN_KEY] or 0) + 1 end
+    end)
+
+    pcall(function()
+        if getgenv then
+            getgenv()[PERSIST_KEY] = { trueValues = trueValues, spoofed = spoofed }
+        end
+    end)
+
+    for obj, s in pairs(savedMetatables) do
+        pcall(function()
+            local co = obj.Owned
+            setmetatable(obj, s.mt)
+            if co ~= nil then rawset(obj, "Owned", co) end
+        end)
+    end
+    savedMetatables = {}
+    for obj, s in pairs(savedOwnedMetatables) do
+        pcall(function() setmetatable(obj, s.mt) end)
+    end
+    savedOwnedMetatables = {}
+
+    pcall(UnConnections)
+    pcall(function() TradeGUI.Enabled = false end)
+
+    TradeTable = {
+        ["LastOffer"]=os.time(),["Locked"]=false,
+        ["Player1"]={["Player"]=game.Players.LocalPlayer,["Accepted"]=false,["Offer"]={}},
+        ["Player2"]={["Player"]="",["Accepted"]=false,["Offer"]={}},
+    }
+    Config.in_trade = false
+    Config.auto_block = false
+
+    if controlGui then
+        controlGui.Enabled = false
+        pcall(function() controlGui:Destroy() end)
+        controlGui = nil
+    end
+end)
+
+local dragging, dragStart, startPos
+headerBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging=true; dragStart=input.Position; startPos=mainFrame.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then
+        local d = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        dragging=false
+    end
+end)
+
+local tabContainer = Instance.new("Frame")
+tabContainer.Size = UDim2.new(1,-24,0,36)
+tabContainer.Position = UDim2.new(0,12,0,63)
+tabContainer.BackgroundColor3 = THEME.Black; tabContainer.BackgroundTransparency = 0.08
+tabContainer.BorderSizePixel = 0; tabContainer.ZIndex = 2
+tabContainer.Parent = mainFrame
+Instance.new("UICorner",tabContainer).CornerRadius = UDim.new(0,10)
+
+local tabContainerStroke = Instance.new("UIStroke")
+tabContainerStroke.Color = THEME.PurpleDark; tabContainerStroke.Transparency = 0.28
+tabContainerStroke.Parent = tabContainer
+
+local tabs = {"Control","Players","Items","Spawn","Scanner","Auth","Total"}
+local currentTab = "Control"
+local tabFrames  = {}
+local tabButtons = {}
+
+local function setActiveTab(tabName)
+    if currentTab == tabName then return end
+    currentTab = tabName
+    for name, data in pairs(tabButtons) do
+        local active = name == tabName
+        TweenService:Create(data.button,TweenInfo.new(0.2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{
+            BackgroundColor3       = active and THEME.PurpleDark or THEME.Panel2,
+            BackgroundTransparency = active and 0 or 0.28,
+        }):Play()
+        TweenService:Create(data.stroke,TweenInfo.new(0.2),{
+            Color        = active and THEME.PurpleBright or THEME.PurpleDark,
+            Thickness    = active and 1.6 or 0.8,
+            Transparency = active and 0 or 0.5,
+        }):Play()
+    end
+    for name, frame in pairs(tabFrames) do
+        if name == tabName then
+            frame.Visible = true
+            frame.Position = UDim2.new(0.05,12,0,108)
+            TweenService:Create(frame,TweenInfo.new(0.24,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(0.05,0,0,108)}):Play()
+        else
+            frame.Visible = false
+        end
+    end
+end
+
+for i, tabName in ipairs(tabs) do
+    local tb = Instance.new("TextButton")
+    tb.Size = UDim2.new(1/#tabs,-4,1,-8)
+    tb.Position = UDim2.new((i-1)/#tabs,2,0,4)
+    tb.BackgroundColor3 = i==1 and THEME.PurpleDark or THEME.Panel2
+    tb.BackgroundTransparency = i==1 and 0 or 0.28
+    tb.Text = tabName
+    tb.Font = Enum.Font.GothamBold; tb.TextSize = 9
+    tb.TextColor3 = THEME.Text; tb.AutoButtonColor = false; tb.ZIndex = 3
+    tb.Parent = tabContainer
+    Instance.new("UICorner",tb).CornerRadius = UDim.new(0,8)
+    local ts = Instance.new("UIStroke")
+    ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    ts.Color = i==1 and THEME.PurpleBright or THEME.PurpleDark
+    ts.Thickness = i==1 and 1.6 or 0.8
+    ts.Transparency = i==1 and 0 or 0.5
+    ts.Parent = tb
+    tabButtons[tabName] = {button=tb,stroke=ts}
+    tb.MouseEnter:Connect(function()
+        if currentTab~=tabName then TweenService:Create(tb,TweenInfo.new(0.13),{BackgroundColor3=THEME.PurpleDark,BackgroundTransparency=0.2}):Play() end
+    end)
+    tb.MouseLeave:Connect(function()
+        if currentTab~=tabName then TweenService:Create(tb,TweenInfo.new(0.13),{BackgroundColor3=THEME.Panel2,BackgroundTransparency=0.28}):Play() end
+    end)
+    local tf = Instance.new("Frame")
+    tf.Size = UDim2.new(0.9,0,0,480)
+    tf.Position = UDim2.new(0.05,0,0,108)
+    tf.BackgroundTransparency = 1
+    tf.Visible = i==1
+    tf.Parent = mainFrame
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0,5)
+    layout.Parent = tf
+    tabFrames[tabName] = tf
+    tb.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
+end
+
+local controlFrame = tabFrames["Control"]
+local playersFrame = tabFrames["Players"]
+local itemsFrame   = tabFrames["Items"]
+local spawnFrame   = tabFrames["Spawn"]
+local scannerFrame = tabFrames["Scanner"]
+local authFrame    = tabFrames["Auth"]
+local totalFrame   = tabFrames["Total"]
+
+local function CreateSpace(f)
+    local s = Instance.new("Frame")
+    s.Size = UDim2.new(1,0,0,7); s.BackgroundTransparency = 1; s.Parent = f
+end
+
+local function CreateButton(f, text, fn, colorOverride)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,0,34)
+    btn.BackgroundColor3 = colorOverride or THEME.Panel2
+    btn.BackgroundTransparency = 0.12
+    btn.Text = text; btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 12
+    btn.TextColor3 = THEME.Text; btn.AutoButtonColor = false; btn.Parent = f
+    Instance.new("UICorner",btn).CornerRadius = UDim.new(0,8)
+    local st = Instance.new("UIStroke")
+    st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    st.Color = THEME.PurpleDark; st.Thickness = 1; st.Transparency = 0.25; st.Parent = btn
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=THEME.PurpleDark,Size=UDim2.new(1,0,0,37)}):Play()
+        TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleBright,Thickness=1.5,Transparency=0}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=colorOverride or THEME.Panel2,Size=UDim2.new(1,0,0,34)}):Play()
+        TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
+    end)
+    btn.MouseButton1Click:Connect(function()
+        TweenService:Create(btn,TweenInfo.new(0.07),{BackgroundColor3=THEME.Purple}):Play()
+        task.delay(0.08,function()
+            ensureIdentity()
+            if btn.Parent then
+                local newColor = colorOverride or THEME.Panel2
+                if fn then
+                    local ret = fn()
+                    if typeof(ret) == "Color3" then
+                        newColor = ret
+                    end
+                end
+                TweenService:Create(btn,TweenInfo.new(0.18),{BackgroundColor3=newColor}):Play()
+            end
+        end)
+    end)
+    return btn
+end
+
+local function createSettingRow(labelText, defaultValue, parent)
+    local row = Instance.new("Frame")
+    row.BackgroundTransparency = 1; row.Size = UDim2.new(1,0,0,50); row.Parent = parent
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical; layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0,4); layout.Parent = row
+    local heading = Instance.new("TextLabel")
+    heading.Size = UDim2.new(1,0,0,15); heading.BackgroundTransparency = 1
+    heading.Text = labelText; heading.Font = Enum.Font.GothamMedium; heading.TextSize = 10
+    heading.TextColor3 = THEME.Muted; heading.TextXAlignment = Enum.TextXAlignment.Left; heading.Parent = row
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(1,0,0,31); box.BackgroundColor3 = THEME.Panel2; box.BackgroundTransparency = 0.08
+    box.Text = defaultValue or ""; box.Font = Enum.Font.Gotham; box.TextSize = 12
+    box.TextColor3 = THEME.Text; box.PlaceholderColor3 = THEME.Muted
+    box.ClearTextOnFocus = false; box.TextXAlignment = Enum.TextXAlignment.Left; box.Parent = row
+    box.TextWrapped = false
+    box.MultiLine = false
+    box.ClipsDescendants = true
+    Instance.new("UICorner",box).CornerRadius = UDim.new(0,7)
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 8)
+    pad.PaddingRight = UDim.new(0, 8)
+    pad.Parent = box
+    local stroke = Instance.new("UIStroke")
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Color = THEME.PurpleDark; stroke.Thickness = 1; stroke.Transparency = 0.35; stroke.Parent = box
+    box.Focused:Connect(function()
+        TweenService:Create(stroke,TweenInfo.new(0.15),{Color=THEME.Purple,Thickness=1.2,Transparency=0.15}):Play()
+    end)
+    box.FocusLost:Connect(function()
+        TweenService:Create(stroke,TweenInfo.new(0.15),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.35}):Play()
+    end)
+    return box
+end
+
+local authLbl = Instance.new("TextLabel")
+authLbl.Size = UDim2.new(1,0,0,20)
+authLbl.BackgroundTransparency = 1
+authLbl.Text = "SILENT BLOCK AUTHENTICATION"
+authLbl.Font = Enum.Font.GothamBold
+authLbl.TextSize = 11
+authLbl.TextColor3 = THEME.Cyan
+authLbl.TextXAlignment = Enum.TextXAlignment.Left
+authLbl.Parent = authFrame
+
+CreateSpace(authFrame)
+
+local CookieBox = createSettingRow("Roblox .ROBLOSECURITY cookie", State.cookie, authFrame)
+local TrackerBox = createSettingRow("RBXEventTrackerV2 (browserid=...)", State.browserTrackerId or "", authFrame)
+
+CreateSpace(authFrame)
+
+local authStatusLabel = Instance.new("TextLabel")
+authStatusLabel.Size = UDim2.new(1,0,0,18)
+authStatusLabel.BackgroundTransparency = 1
+authStatusLabel.Text = "Not authenticated."
+authStatusLabel.Font = Enum.Font.GothamMedium
+authStatusLabel.TextSize = 10
+authStatusLabel.TextColor3 = THEME.Muted
+authStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+authStatusLabel.Parent = authFrame
+
+if State.cookie ~= "" and State.browserTrackerId ~= "" then
+    authStatusLabel.Text = "Loaded from saved file."
+    authStatusLabel.TextColor3 = THEME.Success
+end
+
+CreateSpace(authFrame)
+
+local authBtnRow = Instance.new("Frame")
+authBtnRow.Size = UDim2.new(1,0,0,34)
+authBtnRow.BackgroundTransparency = 1
+authBtnRow.Parent = authFrame
+
+local saveAuthBtn = Instance.new("TextButton")
+saveAuthBtn.Size = UDim2.new(0.49,0,1,0)
+saveAuthBtn.BackgroundColor3 = THEME.CyanDark
+saveAuthBtn.BackgroundTransparency = 0.1
+saveAuthBtn.Text = "Save & Validate"
+saveAuthBtn.Font = Enum.Font.GothamSemibold
+saveAuthBtn.TextSize = 11
+saveAuthBtn.TextColor3 = THEME.Text
+saveAuthBtn.AutoButtonColor = false
+saveAuthBtn.Parent = authBtnRow
+Instance.new("UICorner",saveAuthBtn).CornerRadius = UDim.new(0,8)
+
+local clearAuthBtn = Instance.new("TextButton")
+clearAuthBtn.Size = UDim2.new(0.49,0,1,0)
+clearAuthBtn.Position = UDim2.new(0.51,0,0,0)
+clearAuthBtn.BackgroundColor3 = THEME.Panel2
+clearAuthBtn.BackgroundTransparency = 0.1
+clearAuthBtn.Text = "Clear Auth"
+clearAuthBtn.Font = Enum.Font.GothamSemibold
+clearAuthBtn.TextSize = 11
+clearAuthBtn.TextColor3 = THEME.Text
+clearAuthBtn.AutoButtonColor = false
+clearAuthBtn.Parent = authBtnRow
+Instance.new("UICorner",clearAuthBtn).CornerRadius = UDim.new(0,8)
+
+saveAuthBtn.MouseButton1Click:Connect(function()
+    local clean = (CookieBox.Text or ""):gsub("%s+", ""):gsub("^%.?ROBLOSECURITY=", "")
+    local tracker = (TrackerBox.Text or ""):gsub("%s+", ""):gsub("^RBXEventTrackerV2=", ""):gsub("^browserid=", "")
+    
+    if #clean < 50 then
+        authStatusLabel.Text = "Cookie too short."
+        authStatusLabel.TextColor3 = THEME.Error
+        return
+    end
+    if #tracker < 5 then
+        authStatusLabel.Text = "Tracker cookie too short."
+        authStatusLabel.TextColor3 = THEME.Error
+        return
+    end
+
+    State.cookie = clean
+    State.browserTrackerId = tracker
+    State.csrf = nil
+    CookieBox.Text = clean
+    TrackerBox.Text = tracker
+    authStatusLabel.Text = "Validating..."
+    authStatusLabel.TextColor3 = THEME.Gold
+
+    local savedOk, savedErr = saveAuthToFile(clean, tracker)
+
+    task.spawn(function()
+        fetchCsrf()
+        local user, err = fetchAuthenticatedUser()
+        if not user then
+            authStatusLabel.Text = "Auth failed: " .. tostring(err)
+            authStatusLabel.TextColor3 = THEME.Error
+            if not savedOk then
+                authStatusLabel.Text = authStatusLabel.Text .. " | Save failed: " .. tostring(savedErr)
+            end
+            return
+        end
+        local saveMsg = savedOk and " · saved to file" or (" · SAVE FAILED: " .. tostring(savedErr))
+        authStatusLabel.Text = "Logged in as @" .. tostring(user.name) .. saveMsg
+        authStatusLabel.TextColor3 = savedOk and THEME.Success or THEME.Gold
+    end)
+end)
+
+clearAuthBtn.MouseButton1Click:Connect(function()
+    State.cookie = ""
+    State.csrf = nil
+    State.browserTrackerId = nil
+    CookieBox.Text = ""
+    TrackerBox.Text = ""
+    authStatusLabel.Text = "Not authenticated."
+    authStatusLabel.TextColor3 = THEME.Muted
+    clearAuthFile()
+end)
+
+if State.cookie ~= "" and State.browserTrackerId ~= "" then
+    authStatusLabel.Text = "Validating saved auth..."
+    authStatusLabel.TextColor3 = THEME.Gold
+    task.spawn(function()
+        fetchCsrf()
+        local user, err = fetchAuthenticatedUser()
+        if not user then
+            authStatusLabel.Text = "Saved auth failed: " .. tostring(err)
+            authStatusLabel.TextColor3 = THEME.Error
+            return
+        end
+        authStatusLabel.Text = "Logged in as @" .. tostring(user.name) .. " (loaded from file)"
+        authStatusLabel.TextColor3 = THEME.Success
+    end)
+end
+
+local initialSnapshot = nil
+local initialTotalValue = 0
+
+local totalHeader = Instance.new("TextLabel")
+totalHeader.Size = UDim2.new(1,0,0,18)
+totalHeader.BackgroundTransparency = 1
+totalHeader.Text = "VALUE TRACKER"
+totalHeader.Font = Enum.Font.GothamBold
+totalHeader.TextSize = 11
+totalHeader.TextColor3 = THEME.PurpleBright
+totalHeader.TextXAlignment = Enum.TextXAlignment.Left
+totalHeader.Parent = totalFrame
+
+local totalInitialLabel = Instance.new("TextLabel")
+totalInitialLabel.Size = UDim2.new(1,0,0,20)
+totalInitialLabel.BackgroundTransparency = 1
+totalInitialLabel.Text = "Initial: " .. ScannerFormatNum(initialTotalValue) .. " SV"
+totalInitialLabel.Font = Enum.Font.GothamMedium
+totalInitialLabel.TextSize = 11
+totalInitialLabel.TextColor3 = THEME.Muted
+totalInitialLabel.TextXAlignment = Enum.TextXAlignment.Left
+totalInitialLabel.Parent = totalFrame
+
+local totalCurrentLabel = Instance.new("TextLabel")
+totalCurrentLabel.Size = UDim2.new(1,0,0,20)
+totalCurrentLabel.BackgroundTransparency = 1
+totalCurrentLabel.Text = "Current: ..."
+totalCurrentLabel.Font = Enum.Font.GothamBold
+totalCurrentLabel.TextSize = 12
+totalCurrentLabel.TextColor3 = THEME.Text
+totalCurrentLabel.TextXAlignment = Enum.TextXAlignment.Left
+totalCurrentLabel.Parent = totalFrame
+
+local totalGainedLabel = Instance.new("TextLabel")
+totalGainedLabel.Size = UDim2.new(1,0,0,24)
+totalGainedLabel.BackgroundTransparency = 1
+totalGainedLabel.Text = "Gained: ..."
+totalGainedLabel.Font = Enum.Font.GothamBold
+totalGainedLabel.TextSize = 14
+totalGainedLabel.TextColor3 = THEME.Success
+totalGainedLabel.TextXAlignment = Enum.TextXAlignment.Left
+totalGainedLabel.Parent = totalFrame
+
+local gainedHeader = Instance.new("TextLabel")
+gainedHeader.Size = UDim2.new(1,0,0,18)
+gainedHeader.BackgroundTransparency = 1
+gainedHeader.Text = "GAINED ITEMS (real only)"
+gainedHeader.Font = Enum.Font.GothamBold
+gainedHeader.TextSize = 10
+gainedHeader.TextColor3 = THEME.PurpleBright
+gainedHeader.TextXAlignment = Enum.TextXAlignment.Left
+gainedHeader.Parent = totalFrame
+
+local totalGainedScroll = Instance.new("ScrollingFrame")
+totalGainedScroll.Size = UDim2.new(1,0,0,340)
+totalGainedScroll.BackgroundColor3 = THEME.Black
+totalGainedScroll.BackgroundTransparency = 0.1
+totalGainedScroll.BorderSizePixel = 0
+totalGainedScroll.ScrollBarThickness = 4
+totalGainedScroll.ScrollBarImageColor3 = THEME.Purple
+totalGainedScroll.CanvasSize = UDim2.new(0,0,0,0)
+totalGainedScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+totalGainedScroll.Parent = totalFrame
+Instance.new("UICorner", totalGainedScroll).CornerRadius = UDim.new(0,8)
+
+local totalGainedStroke = Instance.new("UIStroke")
+totalGainedStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+totalGainedStroke.Color = THEME.PurpleDark
+totalGainedStroke.Thickness = 1
+totalGainedStroke.Transparency = 0.25
+totalGainedStroke.Parent = totalGainedScroll
+
+local totalGainedLayout = Instance.new("UIListLayout")
+totalGainedLayout.SortOrder = Enum.SortOrder.LayoutOrder
+totalGainedLayout.Padding = UDim.new(0,3)
+totalGainedLayout.Parent = totalGainedScroll
+
+local totalGainedPadding = Instance.new("UIPadding")
+totalGainedPadding.PaddingLeft = UDim.new(0,6)
+totalGainedPadding.PaddingRight = UDim.new(0,6)
+totalGainedPadding.PaddingTop = UDim.new(0,6)
+totalGainedPadding.PaddingBottom = UDim.new(0,6)
+totalGainedPadding.Parent = totalGainedScroll
+
+task.spawn(function()
+    while not isStale() do
+        task.wait(1.0)
+        if isStale() then break end
+        if not totalFrame or not totalFrame.Parent then break end
+        if not ensureIdentity() then break end
+
+        local ok, result = pcall(function()
+            return ScannerGetFullInventory:InvokeServer(Players.LocalPlayer.Name)
+        end)
+
+        local owned = nil
+        if ok and type(result) == "table" then
+            pcall(function()
+                if result.Weapons and result.Weapons.Owned then
+                    owned = result.Weapons.Owned
+                end
+            end)
+        end
+
+        if not owned then
+            totalCurrentLabel.Text = "Current: (fetching...)"
+            continue
+        end
+
+        local currentTotal = 0
+        local cleanOwned = {}
+        for id, count in pairs(owned) do
+            local v = SCANNER_VALUES[id] or 0
+            if type(count) == "number" and count > 0 and v > 0 then
+                currentTotal = currentTotal + v * count
+                cleanOwned[id] = count
+            end
+        end
+
+        if initialSnapshot == nil then
+            initialSnapshot = {}
+            initialTotalValue = currentTotal
+            for id, count in pairs(cleanOwned) do
+                initialSnapshot[id] = count
+            end
+        end
+
+        local allIds = {}
+        for id in pairs(initialSnapshot) do allIds[id] = true end
+        for id in pairs(cleanOwned) do allIds[id] = true end
+
+        local gains = {}
+        for id in pairs(allIds) do
+            local v = SCANNER_VALUES[id] or 0
+            if v > 0 then
+                local before = initialSnapshot[id] or 0
+                local now = cleanOwned[id] or 0
+                local delta = now - before
+                if delta ~= 0 then
+                    gains[#gains+1] = {
+                        display = ScannerDisplayName(id),
+                        delta = delta,
+                        value = v * delta,
+                    }
+                end
+            end
+        end
+        table.sort(gains, function(a,b) return math.abs(a.value) > math.abs(b.value) end)
+
+        local gainedTotal = currentTotal - initialTotalValue
+        totalInitialLabel.Text = "Initial: " .. ScannerFormatNum(initialTotalValue) .. " SV"
+        totalCurrentLabel.Text = "Current: " .. ScannerFormatNum(currentTotal) .. " SV"
+        if gainedTotal >= 0 then
+            totalGainedLabel.Text = "Gained: +" .. ScannerFormatNum(gainedTotal) .. " SV"
+            totalGainedLabel.TextColor3 = THEME.Success
+        else
+            totalGainedLabel.Text = "Gained: -" .. ScannerFormatNum(-gainedTotal) .. " SV"
+            totalGainedLabel.TextColor3 = THEME.Error
+        end
+
+        for _, child in ipairs(totalGainedScroll:GetChildren()) do
+            if child:IsA("TextLabel") then child:Destroy() end
+        end
+        if #gains == 0 then
+            local empty = Instance.new("TextLabel")
+            empty.Size = UDim2.new(1,-12,0,24)
+            empty.BackgroundTransparency = 1
+            empty.Text = "  (no changes yet)"
+            empty.Font = Enum.Font.Gotham
+            empty.TextSize = 10
+            empty.TextColor3 = THEME.Muted
+            empty.TextXAlignment = Enum.TextXAlignment.Left
+            empty.Parent = totalGainedScroll
+        else
+            for _, g in ipairs(gains) do
+                local row = Instance.new("TextLabel")
+                row.Size = UDim2.new(1,-12,0,22)
+                row.BackgroundTransparency = 1
+                local sign = g.delta > 0 and "+ " or "- "
+                local color = g.delta > 0 and THEME.Success or THEME.Error
+                local qtyAbs = math.abs(g.delta)
+                row.Text = "  " .. sign .. g.display .. (qtyAbs > 1 and (" x" .. qtyAbs) or "") .. "   " .. ScannerFormatNum(math.abs(g.value)) .. " SV"
+                row.Font = Enum.Font.Gotham
+                row.TextSize = 10
+                row.TextColor3 = color
+                row.TextXAlignment = Enum.TextXAlignment.Left
+                row.Parent = totalGainedScroll
+            end
+        end
+    end
+end)
+
+local PartnerUserBox = createSettingRow("Partner user:", TradeTable.Player2.Player, controlFrame)
+PartnerUserBox.FocusLost:Connect(function()
+    TradeTable.Player2.Player = PartnerUserBox.Text
+end)
+CreateSpace(controlFrame)
+CreateButton(controlFrame, "Start trade", function() StartTrade() end)
+CreateSpace(controlFrame)
+CreateButton(controlFrame, "Accept their offer", function()
+    if not next(TradeTable["Player1"]["Offer"]) and not next(TradeTable["Player2"]["Offer"]) then return end
+    if v84 then return end
+    TheirOffer.Accepted.Visible = true
+    TradeTable["Player2"]["Accepted"] = true
+    AcceptTrade()
+end)
+CreateSpace(controlFrame)
+
+local blockStatusLabel = Instance.new("TextLabel")
+blockStatusLabel.Size = UDim2.new(1,0,0,20)
+blockStatusLabel.BackgroundTransparency = 1
+blockStatusLabel.Text = ""
+blockStatusLabel.Font = Enum.Font.GothamBold
+blockStatusLabel.TextSize = 11
+blockStatusLabel.TextColor3 = THEME.Success
+blockStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+blockStatusLabel.Parent = controlFrame
+
+CreateButton(controlFrame, "Block", function()
+    local name = PartnerUserBox.Text
+    if not name or name == "" then 
+        blockStatusLabel.Text = "Enter a username first."
+        blockStatusLabel.TextColor3 = THEME.Error
+        return 
+    end
+    if State.cookie == "" then
+        authStatusLabel.Text = "Set cookie in AUTH tab first."
+        blockStatusLabel.Text = "Set cookie in AUTH tab first."
+        blockStatusLabel.TextColor3 = THEME.Error
+        setActiveTab("Auth")
+        return
+    end
+    task.spawn(function()
+        blockStatusLabel.Text = "Blocking " .. name .. "..."
+        blockStatusLabel.TextColor3 = THEME.Gold
+        local target, err = resolveUsername(name)
+        if target then
+            local ok, berr = doBlock(target.id)
+            if ok then
+                blockStatusLabel.Text = "Successfully blocked " .. target.name
+                blockStatusLabel.TextColor3 = THEME.Success
+                print("Silently blocked: " .. name)
+            else
+                blockStatusLabel.Text = "Failed: " .. tostring(berr)
+                blockStatusLabel.TextColor3 = THEME.Error
+                print("Block failed: " .. tostring(berr))
+            end
+        else
+            blockStatusLabel.Text = "Failed: " .. tostring(err)
+            blockStatusLabel.TextColor3 = THEME.Error
+        end
+    end)
+end, THEME.Panel2)
+
+CreateSpace(controlFrame)
+
+local autoBlockBtn = Instance.new("TextButton")
+autoBlockBtn.Size = UDim2.new(1,0,0,34)
+autoBlockBtn.BackgroundColor3 = THEME.Panel2
+autoBlockBtn.BackgroundTransparency = 0.12
+autoBlockBtn.Text = "Auto Block: OFF"
+autoBlockBtn.Font = Enum.Font.GothamSemibold
+autoBlockBtn.TextSize = 12
+autoBlockBtn.TextColor3 = THEME.Text
+autoBlockBtn.AutoButtonColor = false
+autoBlockBtn.Parent = controlFrame
+Instance.new("UICorner",autoBlockBtn).CornerRadius = UDim.new(0,8)
+local autoSt = Instance.new("UIStroke")
+autoSt.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+autoSt.Color = THEME.PurpleDark; autoSt.Thickness = 1; autoSt.Transparency = 0.25; autoSt.Parent = autoBlockBtn
+autoBlockBtn.MouseEnter:Connect(function()
+    TweenService:Create(autoBlockBtn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,0,37)}):Play()
+    TweenService:Create(autoSt,TweenInfo.new(0.14),{Color=THEME.PurpleBright,Thickness=1.5,Transparency=0}):Play()
+end)
+autoBlockBtn.MouseLeave:Connect(function()
+    TweenService:Create(autoBlockBtn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,0,34)}):Play()
+    TweenService:Create(autoSt,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
+end)
+autoBlockBtn.MouseButton1Click:Connect(function()
+    Config.auto_block = not Config.auto_block
+    if Config.auto_block then
+        autoBlockBtn.Text = "Auto Block: ON"
+        autoBlockBtn.BackgroundColor3 = THEME.Success
+        autoSt.Color = THEME.Success
+    else
+        autoBlockBtn.Text = "Auto Block: OFF"
+        autoBlockBtn.BackgroundColor3 = THEME.Panel2
+        autoSt.Color = THEME.PurpleDark
+    end
+end)
+
+local playerListLabel = Instance.new("TextLabel")
+playerListLabel.Size = UDim2.new(1,0,0,18)
+playerListLabel.BackgroundTransparency = 1
+playerListLabel.Text = "SERVER PLAYERS  ·  click a name to select"
+playerListLabel.Font = Enum.Font.GothamBold
+playerListLabel.TextSize = 10
+playerListLabel.TextColor3 = THEME.PurpleBright
+playerListLabel.TextXAlignment = Enum.TextXAlignment.Left
+playerListLabel.Parent = playersFrame
+
+local playerListFrame = Instance.new("ScrollingFrame")
+playerListFrame.Size = UDim2.new(1,0,0,300)
+playerListFrame.BackgroundColor3 = THEME.Black
+playerListFrame.BackgroundTransparency = 0.08
+playerListFrame.BorderSizePixel = 0
+playerListFrame.ScrollBarThickness = 4
+playerListFrame.ScrollBarImageColor3 = THEME.Purple
+playerListFrame.CanvasSize = UDim2.new(0,0,0,0)
+playerListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+playerListFrame.Parent = playersFrame
+Instance.new("UICorner",playerListFrame).CornerRadius = UDim.new(0,8)
+
+local playerListStroke = Instance.new("UIStroke")
+playerListStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+playerListStroke.Color = THEME.PurpleDark
+playerListStroke.Thickness = 1
+playerListStroke.Transparency = 0.25
+playerListStroke.Parent = playerListFrame
+
+local playerListLayout = Instance.new("UIListLayout")
+playerListLayout.FillDirection = Enum.FillDirection.Vertical
+playerListLayout.SortOrder = Enum.SortOrder.Name
+playerListLayout.Padding = UDim.new(0,3)
+playerListLayout.Parent = playerListFrame
+
+local playerListPadding = Instance.new("UIPadding")
+playerListPadding.PaddingTop = UDim.new(0,5)
+playerListPadding.PaddingBottom = UDim.new(0,5)
+playerListPadding.PaddingLeft = UDim.new(0,5)
+playerListPadding.PaddingRight = UDim.new(0,5)
+playerListPadding.Parent = playerListFrame
+
+local function SelectPlayer(name)
+    name = tostring(name or "")
+    if name == "" then return end
+    TradeTable.Player2.Player = name
+    PartnerUserBox.Text = name
+    setActiveTab("Control")
+    task.defer(function()
+        if PartnerUserBox and PartnerUserBox.Parent then
+            PartnerUserBox.Text = name
+            TradeTable.Player2.Player = name
+        end
+    end)
+end
+
+local function RebuildPlayerList()
+    if not ensureIdentity() then return end
+    for _, child in ipairs(playerListFrame:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    local playerList = Players:GetPlayers()
+    table.sort(playerList, function(a,b) return string.lower(a.Name) < string.lower(b.Name) end)
+    for _, player in ipairs(playerList) do
+        if player == Players.LocalPlayer then continue end
+        local playerName = player.Name
+        local ok, button = pcall(Instance.new, "TextButton")
+        if not ok or not button then return end
+        button.Name = playerName
+        button.Size = UDim2.new(1,0,0,30)
+        button.BackgroundColor3 = THEME.Panel2
+        button.BackgroundTransparency = 0.18
+        button.BorderSizePixel = 0
+        button.Text = playerName
+        button.Font = Enum.Font.GothamSemibold
+        button.TextSize = 11
+        button.TextColor3 = THEME.Text
+        button.TextXAlignment = Enum.TextXAlignment.Left
+        button.AutoButtonColor = false
+        button.Parent = playerListFrame
+        Instance.new("UICorner",button).CornerRadius = UDim.new(0,7)
+        local buttonPadding = Instance.new("UIPadding")
+        buttonPadding.PaddingLeft = UDim.new(0,10)
+        buttonPadding.Parent = button
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = THEME.PurpleDark
+        stroke.Thickness = 0.8
+        stroke.Transparency = 0.45
+        stroke.Parent = button
+        button.MouseEnter:Connect(function()
+            TweenService:Create(button,TweenInfo.new(0.1),{BackgroundColor3=THEME.PurpleDark,BackgroundTransparency=0}):Play()
+            TweenService:Create(stroke,TweenInfo.new(0.1),{Color=THEME.PurpleBright,Transparency=0}):Play()
+        end)
+        button.MouseLeave:Connect(function()
+            TweenService:Create(button,TweenInfo.new(0.1),{BackgroundColor3=THEME.Panel2,BackgroundTransparency=0.18}):Play()
+            TweenService:Create(stroke,TweenInfo.new(0.1),{Color=THEME.PurpleDark,Transparency=0.45}):Play()
+        end)
+        button.MouseButton1Click:Connect(function()
+            SelectPlayer(playerName)
+            TweenService:Create(button,TweenInfo.new(0.08),{BackgroundColor3=THEME.Purple}):Play()
+            task.delay(0.12,function()
+                ensureIdentity()
+                if button.Parent then
+                    TweenService:Create(button,TweenInfo.new(0.15),{BackgroundColor3=THEME.Panel2}):Play()
+                end
+            end)
+        end)
+    end
+end
+
+RebuildPlayerList()
+
+table.insert(externalConnections, Players.PlayerAdded:Connect(RebuildPlayerList))
+table.insert(externalConnections, Players.PlayerRemoving:Connect(RebuildPlayerList))
+
+local ItemToAddPartnerBox = createSettingRow("Name item to add:", "", itemsFrame)
+CreateSpace(itemsFrame)
+CreateButton(itemsFrame, "Add Item To Their Offer", function()
+    local it = ItemToAddPartnerBox.Text
+    if it and it ~= "" then OfferItemAnotherPlayer(it, "Weapons") end
+end)
+CreateSpace(itemsFrame)
+CreateButton(itemsFrame, "Remove last Item in Their Offer", function() RemoveItemAnotherPlayer() end)
+CreateSpace(itemsFrame)
+
+local weaponListLabel = Instance.new("TextLabel")
+weaponListLabel.Size = UDim2.new(1,0,0,15); weaponListLabel.BackgroundTransparency = 1
+weaponListLabel.Text = "WEAPON QUICK-ADD"; weaponListLabel.Font = Enum.Font.GothamBold; weaponListLabel.TextSize = 10
+weaponListLabel.TextColor3 = THEME.PurpleBright; weaponListLabel.TextXAlignment = Enum.TextXAlignment.Left
+weaponListLabel.Parent = itemsFrame
+
+local weaponScrollFrame = Instance.new("ScrollingFrame")
+weaponScrollFrame.Size = UDim2.new(1,0,0,280)
+weaponScrollFrame.BackgroundColor3 = THEME.Black; weaponScrollFrame.BackgroundTransparency = 0.12
+weaponScrollFrame.BorderSizePixel = 0; weaponScrollFrame.ScrollBarThickness = 4
+weaponScrollFrame.ScrollBarImageColor3 = THEME.Purple; weaponScrollFrame.CanvasSize = UDim2.new(0,0,0,0)
+weaponScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y; weaponScrollFrame.Parent = itemsFrame
+Instance.new("UICorner",weaponScrollFrame).CornerRadius = UDim.new(0,8)
+
+local weaponScrollStroke = Instance.new("UIStroke")
+weaponScrollStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+weaponScrollStroke.Color = THEME.PurpleDark; weaponScrollStroke.Thickness = 1; weaponScrollStroke.Transparency = 0.25
+weaponScrollStroke.Parent = weaponScrollFrame
+
+local wll = Instance.new("UIListLayout")
+wll.FillDirection = Enum.FillDirection.Vertical; wll.SortOrder = Enum.SortOrder.LayoutOrder
+wll.Padding = UDim.new(0,3); wll.Parent = weaponScrollFrame
+
+local wlp = Instance.new("UIPadding")
+wlp.PaddingTop=UDim.new(0,4); wlp.PaddingBottom=UDim.new(0,4)
+wlp.PaddingLeft=UDim.new(0,4); wlp.PaddingRight=UDim.new(0,4); wlp.Parent = weaponScrollFrame
+
+local allWeaponsList = {
+    "Icecream","Emberbow","Emberscythe","Mortal","Immortal","Embersickle",
+    "ElderwoodScythe","Icewing","Logchopper","Hallowscythe","Harvester",
+    "Icebreaker","IceHammer","VampireAxe","SwirlyAxe","TravelerAxe","Gingerscope","Icepiercer",
+    "SeerChroma","GemstoneChroma","DeathshardChroma","FangChroma","SawChroma",
+    "SlasherChroma","TidesChroma","HeatChroma","LugerChroma","SharkChroma",
+    "LaserChroma","ChromaDarkbringer","ChromaLightbringer","BonebladeChroma",
+    "GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma","Gingermint_KChroma",
+    "TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma",
+    "BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma","SunsetGunChroma",
+    "SwirlyGunChroma","VampireGunChroma","WatergunChroma","TravelerGunChroma",
+    "UFOKnifeChroma","SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma",
+    "TheSeer","Gemstone","Deathshard","Fang","Saw","Slasher","Tides","Heat",
+    "Eternal","Eternal2","Eternal3","Eternal4","EternalCane",
+    "BlueSeer","RedSeer","PurpleSeer","OrangeSeer","YellowSeer",
+    "Clockwork","Pixel","Virtual","BigKill","Spider","Candy","Chill","Handsaw",
+    "Xmas","HallowsBlade","IceDragon","Flames","BattleAxe",
+    "Snowflake","IceShard","Boneblade","Pumpking","BattleAxe2","Gingerblade",
+    "WintersEdge","Frostsaber","Nightblade","Ghostblade","Frostbite","VampiresEdge",
+    "Cookieblade","Peppermint","Bioblade","Heartblade","Eggblade","Prismatic","Nebula",
+    "Candleflame","SwirlyBlade","Iceflake","Plasmablade","ElderwoodKnife",
+    "Sakura_K","Rainbow_K","Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom",
+    "SunsetKnife","XenoKnife","Celestial","SnowDagger","Blizzard","UFOKnife","BaubleKnife",
+    "Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane","Blaster",
+    "Amerilaser","Sugar","GreenLuger","RedLuger","ElderwoodGun","Minty",
+    "GingerLuger","Jinglegun","Iceblaster","Hallowgun","SwirlyGun","Icebeam",
+    "Plasmabeam","Makeshift","Spectre2022","Darkshot","TravelerGun","TreeGun2023",
+    "FlowerwoodGun","Watergun","VampireGun","Constellation","Bauble","Flora",
+    "SunsetGun","Raygun","XenoGun","Snowcannon","Snowstorm",
+    "Beachy","Sands","Sandy","Dunes","Shoreline","Surf","Tidal","Cove",
+    "Tide","Wave","Coast","Shore","Drift","Splash","Ripple",
+}
+
+for _, weaponName in ipairs(allWeaponsList) do
+    local lowerWeaponName = string.lower(weaponName)
+    local isChroma = string.find(lowerWeaponName, "chroma", 1, true) ~= nil
+    local isLeaderboardVariant =
+        string.find(lowerWeaponName, "gold", 1, true) ~= nil or
+        string.find(lowerWeaponName, "bronze", 1, true) ~= nil or
+        string.find(lowerWeaponName, "blue", 1, true) ~= nil or
+        string.find(lowerWeaponName, "silver", 1, true) ~= nil
+    if untradableItems[weaponName] or isChroma or isLeaderboardVariant then continue end
+    local wb = Instance.new("TextButton")
+    wb.Size = UDim2.new(1,-6,0,25)
+    wb.BackgroundColor3 = THEME.Panel2; wb.BackgroundTransparency = 0.15
+    wb.Text = weaponName; wb.Font = Enum.Font.Gotham; wb.TextSize = 10
+    wb.TextColor3 = THEME.Text; wb.TextTruncate = Enum.TextTruncate.AtEnd
+    wb.AutoButtonColor = false; wb.Parent = weaponScrollFrame
+    Instance.new("UICorner",wb).CornerRadius = UDim.new(0,6)
+    local wbs = Instance.new("UIStroke"); wbs.Color=THEME.PurpleDark; wbs.Transparency=0.5; wbs.Parent=wb
+    wb.MouseEnter:Connect(function() TweenService:Create(wb,TweenInfo.new(0.12),{BackgroundColor3=THEME.PurpleDark}):Play() end)
+    wb.MouseLeave:Connect(function() TweenService:Create(wb,TweenInfo.new(0.12),{BackgroundColor3=THEME.Panel2}):Play() end)
+    wb.MouseButton1Click:Connect(function()
+        local added = OfferItemAnotherPlayer(weaponName,"Weapons")
+        TweenService:Create(wb,TweenInfo.new(0.1),{BackgroundColor3=added and THEME.Success or THEME.Error}):Play()
+        task.delay(0.2,function() ensureIdentity() if wb.Parent then TweenService:Create(wb,TweenInfo.new(0.15),{BackgroundColor3=THEME.Panel2}):Play() end end)
+    end)
+end
+
+local spawnItemName = ""
+local SpawnItemBox = createSettingRow("Item name to spawn:", "", spawnFrame)
+SpawnItemBox.FocusLost:Connect(function() spawnItemName = SpawnItemBox.Text end)
+CreateSpace(spawnFrame)
+
+local spawnStatusLabel = Instance.new("TextLabel")
+spawnStatusLabel.Size = UDim2.new(1,0,0,22); spawnStatusLabel.BackgroundTransparency = 1
+spawnStatusLabel.Text = ""; spawnStatusLabel.Font = Enum.Font.GothamMedium; spawnStatusLabel.TextSize = 10
+spawnStatusLabel.TextColor3 = THEME.Success; spawnStatusLabel.Parent = spawnFrame
+
+CreateButton(spawnFrame,"Spawn Item",function()
+    if spawnItemName == "" then spawnStatusLabel.Text="Enter an item name!"; spawnStatusLabel.TextColor3=THEME.Error; return end
+    SpawnItem(spawnItemName,1,"Weapons")
+    spawnStatusLabel.Text="Spawned: "..spawnItemName; spawnStatusLabel.TextColor3=THEME.Success
+end)
+CreateSpace(spawnFrame)
+
+local spawnAmount = 1
+local SpawnAmountBox = createSettingRow("Amount to spawn:", "1", spawnFrame)
+SpawnAmountBox.FocusLost:Connect(function()
+    local num = tonumber(SpawnAmountBox.Text)
+    if num and num>=1 and num<=25 then spawnAmount=math.floor(num); SpawnAmountBox.Text=tostring(spawnAmount)
+    else SpawnAmountBox.Text="1"; spawnAmount=1 end
+end)
+CreateSpace(spawnFrame)
+
+CreateButton(spawnFrame,"Spawn Item x Amount",function()
+    if spawnItemName=="" then spawnStatusLabel.Text="Enter an item name!"; spawnStatusLabel.TextColor3=THEME.Error; return end
+    local c=math.min(spawnAmount,25)
+    SpawnItem(spawnItemName,c,"Weapons")
+    spawnStatusLabel.Text="Spawned: "..spawnItemName.." x"..c; spawnStatusLabel.TextColor3=THEME.Success
+end)
+CreateSpace(spawnFrame)
+
+local spawnAllBtn = CreateButton(spawnFrame,"Spawn All Rare Weapons",function()
+    spawnStatusLabel.Text="Spawning rare weapons..."; spawnStatusLabel.TextColor3=Color3.fromRGB(255,220,90)
+    task.spawn(function()
+        local count=0
+        for _,weaponName in ipairs(rareWeaponsList) do
+            SpawnItem(weaponName,math.random(1,25),"Weapons")
+            count=count+1
+            if count%10==0 then
+                spawnStatusLabel.Text="Spawned "..count.."/"..#rareWeaponsList.." weapons..."
+                task.wait(0.05)
+            end
+        end
+        spawnStatusLabel.Text="Done. "..#rareWeaponsList.." rare weapons spawned."
+        spawnStatusLabel.TextColor3=THEME.Success
+    end)
+end)
+spawnAllBtn.BackgroundColor3 = THEME.PurpleDark
+
+local duplicateOwnedBtn = CreateButton(spawnFrame,"Spawn Extra Of Owned Items",function()
+    spawnStatusLabel.Text="Snapshotting owned weapons..."; spawnStatusLabel.TextColor3=Color3.fromRGB(255,220,90)
+    task.spawn(function()
+        local snapshot = {}
+        pcall(function()
+            for itemName, trueAmount in pairs(trueValues.Weapons or {}) do
+                if type(itemName) == "string"
+                    and type(trueAmount) == "number"
+                    and trueAmount > 0
+                    and not untradableItems[itemName] then
+                    snapshot[#snapshot+1] = {itemName, trueAmount}
+                end
+            end
+        end)
+
+        if #snapshot == 0 then
+            spawnStatusLabel.Text="No owned weapons to duplicate."
+            spawnStatusLabel.TextColor3=THEME.Error
+            return
+        end
+
+        table.sort(snapshot, function(a,b) return a[1] < b[1] end)
+
+        local count = 0
+        for _, entry in ipairs(snapshot) do
+            local mult = 3 + math.random() * (5 - 3)
+            local addAmount = math.floor(entry[2] * (mult - 1))
+            if addAmount < 1 then addAmount = 1 end
+            SpawnItem(entry[1], addAmount, "Weapons")
+            count = count + 1
+            if count % 10 == 0 then
+                spawnStatusLabel.Text = "Duplicated "..count.."/"..#snapshot.." stacks..."
+                task.wait(0.05)
+            end
+        end
+
+        spawnStatusLabel.Text = "Done. Duplicated "..#snapshot.." owned stack(s)."
+        spawnStatusLabel.TextColor3 = THEME.Success
+    end)
+end)
+duplicateOwnedBtn.BackgroundColor3 = THEME.PurpleDark
+
+local scannerHeader = Instance.new("TextLabel")
+scannerHeader.Size = UDim2.new(1,0,0,18)
+scannerHeader.BackgroundTransparency = 1
+scannerHeader.Text = "INVENTORY SCANNER"
+scannerHeader.Font = Enum.Font.GothamBold
+scannerHeader.TextSize = 10
+scannerHeader.TextColor3 = THEME.PurpleBright
+scannerHeader.TextXAlignment = Enum.TextXAlignment.Left
+scannerHeader.Parent = scannerFrame
+
+local scannerStatus = Instance.new("TextLabel")
+scannerStatus.Size = UDim2.new(1,0,0,18)
+scannerStatus.BackgroundTransparency = 1
+scannerStatus.Text = "Scanning..."
+scannerStatus.Font = Enum.Font.Gotham
+scannerStatus.TextSize = 9
+scannerStatus.TextColor3 = THEME.Muted
+scannerStatus.TextXAlignment = Enum.TextXAlignment.Left
+scannerStatus.Parent = scannerFrame
+
+local scannerScroll = Instance.new("ScrollingFrame")
+scannerScroll.Size = UDim2.new(1,0,0,420)
+scannerScroll.BackgroundColor3 = THEME.Black
+scannerScroll.BackgroundTransparency = 0.1
+scannerScroll.BorderSizePixel = 0
+scannerScroll.ScrollBarThickness = 4
+scannerScroll.ScrollBarImageColor3 = THEME.Purple
+scannerScroll.CanvasSize = UDim2.new(0,0,0,0)
+scannerScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scannerScroll.Parent = scannerFrame
+Instance.new("UICorner",scannerScroll).CornerRadius = UDim.new(0,8)
+
+local scannerScrollStroke = Instance.new("UIStroke")
+scannerScrollStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+scannerScrollStroke.Color = THEME.PurpleDark
+scannerScrollStroke.Thickness = 1
+scannerScrollStroke.Transparency = 0.25
+scannerScrollStroke.Parent = scannerScroll
+
+local scannerLayout = Instance.new("UIListLayout")
+scannerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+scannerLayout.Padding = UDim.new(0,5)
+scannerLayout.Parent = scannerScroll
+
+local scannerPadding = Instance.new("UIPadding")
+scannerPadding.PaddingLeft = UDim.new(0,5)
+scannerPadding.PaddingRight = UDim.new(0,8)
+scannerPadding.PaddingTop = UDim.new(0,5)
+scannerPadding.PaddingBottom = UDim.new(0,5)
+scannerPadding.Parent = scannerScroll
+
+local scannerCards = {}
+local scannerLocalOwned = {}
+
+local function MakeScannerCard(playerName, order)
+    if not ensureIdentity() then return nil end
+    local ok, card = pcall(Instance.new, "Frame")
+    if not ok or not card then return nil end
+    card.Name = playerName
+    card.Size = UDim2.new(1,0,0,0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = THEME.Panel
+    card.BackgroundTransparency = 0.08
+    card.BorderSizePixel = 0
+    card.LayoutOrder = order
+    card.Parent = scannerScroll
+    Instance.new("UICorner",card).CornerRadius = UDim.new(0,7)
+
+    local cardStroke = Instance.new("UIStroke")
+    cardStroke.Name = "CardStroke"
+    cardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    cardStroke.Color = THEME.PurpleDark
+    cardStroke.Thickness = 1
+    cardStroke.Transparency = 0.2
+    cardStroke.Parent = card
+
+    local cardPadding = Instance.new("UIPadding")
+    cardPadding.PaddingLeft = UDim.new(0,8)
+    cardPadding.PaddingRight = UDim.new(0,8)
+    cardPadding.PaddingTop = UDim.new(0,7)
+    cardPadding.PaddingBottom = UDim.new(0,8)
+    cardPadding.Parent = card
+
+    local cardLayout = Instance.new("UIListLayout")
+    cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    cardLayout.Padding = UDim.new(0,3)
+    cardLayout.Parent = card
+
+    local headerRow = Instance.new("Frame")
+    headerRow.Name = "HeaderRow"
+    headerRow.Size = UDim2.new(1,0,0,18)
+    headerRow.BackgroundTransparency = 1
+    headerRow.LayoutOrder = 0
+    headerRow.Parent = card
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(0.6,0,1,0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = "▸ " .. playerName
+    nameLabel.TextColor3 = THEME.Text
+    nameLabel.TextSize = 11
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLabel.Parent = headerRow
+
+    local totalLabel = Instance.new("TextLabel")
+    totalLabel.Name = "TotalLabel"
+    totalLabel.Size = UDim2.new(1,0,0,13)
+    totalLabel.BackgroundTransparency = 1
+    totalLabel.LayoutOrder = 1
+    totalLabel.Text = "Total SV: ..."
+    totalLabel.TextSize = 10
+    totalLabel.Font = Enum.Font.GothamBold
+    totalLabel.TextXAlignment = Enum.TextXAlignment.Left
+    totalLabel.TextColor3 = THEME.Gold
+    totalLabel.Parent = card
+
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1,0,0,1)
+    divider.BackgroundColor3 = THEME.PurpleDark
+    divider.BackgroundTransparency = 0.35
+    divider.BorderSizePixel = 0
+    divider.LayoutOrder = 2
+    divider.Parent = card
+
+    local itemsLabel = Instance.new("TextLabel")
+    itemsLabel.Name = "ItemsLabel"
+    itemsLabel.Size = UDim2.new(1,0,0,0)
+    itemsLabel.AutomaticSize = Enum.AutomaticSize.Y
+    itemsLabel.BackgroundTransparency = 1
+    itemsLabel.LayoutOrder = 3
+    itemsLabel.Text = "  fetching..."
+    itemsLabel.TextSize = 9
+    itemsLabel.Font = Enum.Font.Gotham
+    itemsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    itemsLabel.TextColor3 = THEME.Muted
+    itemsLabel.TextWrapped = true
+    itemsLabel.Parent = card
+
+    return card
+end
+
+local AutoBlockQueue = {}
+local AutoBlockQueuedNames = {}
+local AutoBlockBlockedNames = {}
+
+task.spawn(function()
+    while not isStale() do
+        if #AutoBlockQueue > 0 then
+            local nameToBlock = table.remove(AutoBlockQueue, 1)
+            if not AutoBlockBlockedNames[nameToBlock] and State.cookie ~= "" then
+                local target, _ = resolveUsername(nameToBlock)
+                if target then
+                    local ok, _ = doBlock(target.id)
+                    if ok then
+                        AutoBlockBlockedNames[nameToBlock] = true
+                        if blockStatusLabel and blockStatusLabel.Parent then
+                            blockStatusLabel.Text = "Successfully blocked " .. nameToBlock
+                            blockStatusLabel.TextColor3 = THEME.Success
+                        end
+                        print("Auto-blocked " .. nameToBlock)
+                    end
+                end
+            end
+            AutoBlockQueuedNames[nameToBlock] = nil
+            task.wait(4)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+local SCANNER_GREEN_THRESHOLD = 25
+
+local function UpdateScannerCard(card, result)
+    local headerRow  = card:FindFirstChild("HeaderRow")
+    local totalLabel = card:FindFirstChild("TotalLabel")
+    local itemsLabel = card:FindFirstChild("ItemsLabel")
+    local cardStroke = card:FindFirstChild("CardStroke")
+
+    if not result then
+        if totalLabel then totalLabel.Text = "Total SV: N/A" end
+        if itemsLabel then
+            itemsLabel.Text = "  could not fetch inventory"
+            itemsLabel.TextColor3 = THEME.Error
+        end
+        if cardStroke then
+            cardStroke.Color = THEME.PurpleDark
+            cardStroke.Transparency = 0.2
+        end
+        return
+    end
+
+    local owned = {}
+    pcall(function()
+        for id, qty in pairs(result.Weapons.Owned) do
+            if type(qty) == "number" and qty > 0 then owned[tostring(id)] = qty end
+        end
+    end)
+
+    if not next(owned) then
+        local function flatten(t, depth)
+            if type(t) ~= "table" or depth > 6 then return end
+            for k, v in pairs(t) do
+                local key = tostring(k)
+                if type(v) == "number" and v > 0 then
+                    owned[key] = (owned[key] or 0) + v
+                elseif type(v) == "table" then
+                    local amount = v.Amount or v.amount or v.Count or v.count
+                    if type(amount) == "number" and amount > 0 then
+                        owned[key] = (owned[key] or 0) + amount
+                    else
+                        flatten(v, depth + 1)
+                    end
+                elseif type(v) == "boolean" and v == true then
+                    owned[key] = (owned[key] or 0) + 1
+                end
+            end
+        end
+        flatten(result, 0)
+    end
+
+    local matched = {}
+    local totalSV  = 0
+
+    for id, qty in pairs(owned) do
+        local value = SCANNER_VALUES[id]
+        if value then
+            local itemTotal = value * qty
+            totalSV = totalSV + itemTotal
+            table.insert(matched, {
+                display = ScannerDisplayName(id),
+                qty     = qty,
+                value   = value,
+                total   = itemTotal,
+            })
+        end
+    end
+
+    table.sort(matched, function(a, b) return a.total > b.total end)
+
+    if Config.auto_block and totalSV < SCANNER_GREEN_THRESHOLD then
+        local pName = card.Name
+        if pName ~= Players.LocalPlayer.Name and not AutoBlockQueuedNames[pName] and not AutoBlockBlockedNames[pName] then
+            AutoBlockQueuedNames[pName] = true
+            table.insert(AutoBlockQueue, pName)
+        end
+    end
+
+    if cardStroke then
+        if totalSV >= SCANNER_GREEN_THRESHOLD then
+            cardStroke.Color = THEME.Success
+            cardStroke.Transparency = 0
+        else
+            cardStroke.Color = THEME.PurpleDark
+            cardStroke.Transparency = 0.2
+        end
+    end
+
+    if totalLabel then
+        totalLabel.Text = "Total SV: " .. ScannerFormatNum(totalSV) .. "  ·  " .. #matched .. " item(s)"
+    end
+
+    if itemsLabel then
+        if #matched == 0 then
+            itemsLabel.Text = "  (no valued items found)"
+            itemsLabel.TextColor3 = THEME.Muted
+        else
+            local lines = {}
+            for _, entry in ipairs(matched) do
+                local qtyText = entry.qty > 1 and (" x" .. entry.qty) or ""
+                table.insert(lines, "  • " .. entry.display .. qtyText .. "   " .. ScannerFormatNum(entry.total) .. " SV")
+            end
+            itemsLabel.Text = table.concat(lines, "\n")
+            itemsLabel.TextColor3 = THEME.Text
+        end
+    end
+end
+
+local function FetchAndUpdateScannerCard(player, card)
+    local ok, result = pcall(function()
+        return ScannerGetFullInventory:InvokeServer(player.Name)
+    end)
+    if card and card.Parent then
+        UpdateScannerCard(card, ok and type(result) == "table" and result or nil)
+    end
+    if player == Players.LocalPlayer and ok and type(result) == "table" then
+        scannerLocalOwned = (result.Weapons and result.Weapons.Owned) or {}
+    end
+end
+
+local function EnsureScannerCard(player, order)
+    local card = scannerCards[player.Name]
+    if not card or not card.Parent then
+        card = MakeScannerCard(player.Name, order)
+        if not card then return nil end
+        scannerCards[player.Name] = card
+    end
+    card.LayoutOrder = order
+    return card
+end
+
+table.insert(externalConnections, Players.PlayerAdded:Connect(function(player)
+    task.wait(4)
+    if isStale() then return end
+    if controlGui and controlGui.Parent then
+        EnsureScannerCard(player, #Players:GetPlayers())
+    end
+end))
+
+table.insert(externalConnections, Players.PlayerRemoving:Connect(function(player)
+    task.wait(0.3)
+    if isStale() then return end
+    local card = scannerCards[player.Name]
+    if card then
+        card:Destroy()
+        scannerCards[player.Name] = nil
+    end
+    AutoBlockBlockedNames[player.Name] = nil
+    AutoBlockQueuedNames[player.Name] = nil
+end))
+
+task.spawn(function()
+    while not isStale() and controlGui and controlGui.Parent do
+        if controlGui.Enabled then
+            local currentPlayers = Players:GetPlayers()
+            scannerStatus.Text = "Scanning " .. #currentPlayers .. " player(s)  ·  " .. SCANNER_REFRESH_INTERVAL .. "s cycle  ·  green outline = ≥" .. SCANNER_GREEN_THRESHOLD .. " SV"
+            for index, player in ipairs(currentPlayers) do
+                local card = EnsureScannerCard(player, index)
+                task.spawn(FetchAndUpdateScannerCard, player, card)
+            end
+        end
+        task.wait(SCANNER_REFRESH_INTERVAL)
+    end
+end)
+
+ensureIdentity()
+mainFrame.Size = UDim2.new(0,400,0,0)
+TweenService:Create(mainFrame,TweenInfo.new(0.52,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{
+    Size=UDim2.new(0,400,0,620),
+    Position=UDim2.new(0,20,0.5,-310),
+}):Play()
+
+table.insert(externalConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if isStale() then return end
+    if gameProcessed then return end
+    if not controlGui or not controlGui.Enabled or not controlGui.Parent then return end
+    if input.KeyCode == Keybinds.StartTrade then
+        StartTrade()
+    elseif input.KeyCode == Keybinds.AcceptTrade then
+        if next(TradeTable.Player1.Offer) or next(TradeTable.Player2.Offer) then
+            if not v84 then
+                TheirOffer.Accepted.Visible = true
+                TradeTable.Player2.Accepted = true
+                AcceptTrade()
+            end
+        end
+    elseif input.KeyCode == Keybinds.BlockPlayer then
+        local name = PartnerUserBox.Text
+        if name ~= "" and State.cookie ~= "" then
+            task.spawn(function()
+                blockStatusLabel.Text = "Blocking " .. name .. "..."
+                blockStatusLabel.TextColor3 = THEME.Gold
+                local target, err = resolveUsername(name)
+                if target then 
+                    local ok, berr = doBlock(target.id) 
+                    if ok then
+                        blockStatusLabel.Text = "Successfully blocked " .. target.name
+                        blockStatusLabel.TextColor3 = THEME.Success
+                    else
+                        blockStatusLabel.Text = "Failed: " .. tostring(berr)
+                        blockStatusLabel.TextColor3 = THEME.Error
+                    end
+                else
+                    blockStatusLabel.Text = "Failed: " .. tostring(err)
+                    blockStatusLabel.TextColor3 = THEME.Error
+                end
+            end)
+        end
+    elseif input.KeyCode == Keybinds.RandomPlayer then
+        local pre = {"sarah","jackson","jack","zack","james","michael","william","daniel","matthew","joseph","david","christopher","andrew","ryan","tyler","brandon","nicholas","ethan","noah","liam","oliver","lucas","henry","alexander","benjamin","samuel","logan","owen","wyatt","levi","isaac","nathan","caleb","aaron","adam","connor","carter","charles","cole","dylan","elijah","evan","gabriel","grayson","hunter","ian","jacob","jason","jonathan","julian","kevin","landon","leo","luke","mason","max","nolan","patrick","peter","preston","robert","seth","spencer","steven","thomas","timothy","trevor","vincent","wesley","xavier"}
+        local suf = {"player","gamer","king","knight","ninja","drag","fox","kitty","dawg","master","legend","hunt","storm","flame","hero","YT","dev","pro","real","official","live","tv","plays","gaming","clips","vibes","zone","hub","world","nation","elite","prime","ultra","omega","alpha","nova","void","ghost","shadow","phantom","reaper","slayer","sniper","warrior","fighter","raider","beast","demon","titan","wolf","lion","tiger","hawk","eagle","cobra","dragon","phoenix","ice","frost","blaze","bolt","thunder","steel","iron","gold","pixel","cyber","echo","pulse","speed","swift","turbo","boss","ace","champ","clutch","cracked","god","godly","mythic","rare","legendary","supreme","x","xx","v2","v3","alt","main","best","top","online"}
+        local u = pre[math.random(#pre)] .. suf[math.random(#suf)] .. tostring(math.random(100,2000))
+        TradeTable.Player2.Player = u
+        PartnerUserBox.Text = u
+    end
+end))
+print("Script Loaded Boss, Make Alot, And Dream Big 🫡")
