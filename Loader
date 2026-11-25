@@ -1036,6 +1036,7 @@ controlGui.Parent = guiParent
 table.insert(externalConnections, TradeRemotes.StartTrade.OnClientEvent:Connect(function(arg1, arg2)
     if isStale() then return end
     if not controlGui or not controlGui.Enabled then return end
+    if getgenv and getgenv().Executed then return end
     pcall(DeclineTrade)
 end))
 
