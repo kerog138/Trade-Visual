@@ -156,10 +156,22 @@ local function encodeAuth(value)
     for i = 1, #value do
         appendByte((value:byte(i) + salt + i * 37) % 256)
     end
-    return table.concat(encoded)
+    return "-- Encrypted by MM2 Blessing, fully unreadable only script can read this\n" .. table.concat(encoded)
 end
 
 local function decodeAuth(encoded)
+    if type(encoded) ~= "string" then return nil end
+    local header = "-- Encrypted by MM2 Blessing, fully unreadable only script can read this"
+    if encoded:sub(1, #header) == header then
+        encoded = encoded:sub(#header + 1)
+        if encoded:sub(1, 2) == "\r\n" then
+            encoded = encoded:sub(3)
+        elseif encoded:sub(1, 1) == "\n" then
+            encoded = encoded:sub(2)
+        else
+            return nil
+        end
+    end
     if type(encoded) ~= "string" or #encoded < 2 or #encoded % 2 ~= 0 then
         return nil
     end
@@ -1955,8 +1967,8 @@ local function setActiveTab(tabName)
     for name, frame in pairs(tabFrames) do
         if name == tabName then
             frame.Visible = true
-            frame.Position = UDim2.new(0.05,12,0,108)
-            TweenService:Create(frame,TweenInfo.new(0.24,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(0.05,0,0,108)}):Play()
+            frame.Position = UDim2.new(0.5,0,0,108)
+            TweenService:Create(frame,TweenInfo.new(0.24,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(0.5,0,0,108)}):Play()
         else
             frame.Visible = false
         end
@@ -1998,20 +2010,24 @@ for i, tabName in ipairs(tabs) do
         tf.ScrollBarImageColor3 = THEME.Purple
     end
     tf.ClipsDescendants = true
-    tf.Size = UDim2.new(0.9,0,0,480)
-    tf.Position = UDim2.new(0.05,0,0,108)
+    tf.Size = UDim2.new(0.8,0,0,480)
+    tf.AnchorPoint = Vector2.new(0.5,0)
+    tf.Position = UDim2.new(0.5,0,0,108)
     tf.BackgroundTransparency = 1
     tf.ZIndex = 2 -- Keep tab contents above the artwork layer.
     tf.Visible = i==1
     tf.Parent = mainFrame
     local contentPadding = Instance.new("UIPadding")
+    contentPadding.PaddingLeft = UDim.new(0,8)
     contentPadding.PaddingRight = UDim.new(0,8)
+    contentPadding.PaddingTop = UDim.new(0,3)
     contentPadding.PaddingBottom = UDim.new(0,8)
     contentPadding.Parent = tf
     local layout = Instance.new("UIListLayout")
     layout.FillDirection = Enum.FillDirection.Vertical
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Padding = UDim.new(0,5)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.Parent = tf
     tabFrames[tabName] = tf
     tb.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
@@ -2042,11 +2058,11 @@ local function CreateButton(f, text, fn, colorOverride)
     st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     st.Color = THEME.PurpleDark; st.Thickness = 1; st.Transparency = 0.25; st.Parent = btn
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=THEME.PurpleDark,Size=UDim2.new(1,0,0,37)}):Play()
+        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=THEME.PurpleDark}):Play()
         TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleBright,Thickness=1.5,Transparency=0}):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=colorOverride or THEME.Panel2,Size=UDim2.new(1,0,0,34)}):Play()
+        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=colorOverride or THEME.Panel2}):Play()
         TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
     end)
     btn.MouseButton1Click:Connect(function()
@@ -2089,17 +2105,18 @@ end
 
 local function createSettingRow(labelText, defaultValue, parent, masked)
     local row = Instance.new("Frame")
-    row.BackgroundTransparency = 1; row.Size = UDim2.new(1,0,0,58); row.AutomaticSize = Enum.AutomaticSize.Y; row.Parent = parent
+    row.BackgroundTransparency = 1; row.Size = UDim2.new(1,0,0,0); row.AutomaticSize = Enum.AutomaticSize.Y; row.Parent = parent
     local layout = Instance.new("UIListLayout")
     layout.FillDirection = Enum.FillDirection.Vertical; layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.Padding = UDim.new(0,4); layout.Parent = row
     local heading = Instance.new("TextLabel")
     functions.styleFlowText(heading)
-    heading.Size = UDim2.new(1,0,0,20); heading.BackgroundTransparency = 1
+    heading.Size = UDim2.new(1,0,0,0); heading.LayoutOrder = 1; heading.BackgroundTransparency = 1
     heading.Text = labelText; heading.Font = Enum.Font.GothamBold; heading.TextSize = 14
     heading.TextColor3 = THEME.Muted; heading.TextXAlignment = Enum.TextXAlignment.Left; heading.Parent = row
     local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1,0,0,34); box.BackgroundColor3 = THEME.Panel2; box.BackgroundTransparency = 0.08
+    box.Size = UDim2.new(1,0,0,34); box.LayoutOrder = 2; box.AutomaticSize = Enum.AutomaticSize.None; box.BackgroundColor3 = THEME.Panel2; box.BackgroundTransparency = 0.08
     box.Text = defaultValue or ""; box.Font = Enum.Font.GothamBold; box.TextSize = 14
     box.TextColor3 = THEME.Text; box.PlaceholderColor3 = THEME.Muted
     if masked then box.TextTransparency = 1 end
@@ -2113,26 +2130,119 @@ local function createSettingRow(labelText, defaultValue, parent, masked)
     pad.PaddingRight = UDim.new(0, 8)
     pad.Parent = box
     if masked then
-        -- Keep the real TextBox value for editing and authentication.
-        -- Only the asterisk overlay is visible, including while focused.
+        -- The actual value stays in the TextBox; only stars are rendered.
+        local view = Instance.new("ScrollingFrame")
+        view.Name = "AuthScroll"
+        view.BackgroundTransparency = 1
+        view.BorderSizePixel = 0
+        view.Size = UDim2.new(1,0,1,0)
+        view.CanvasSize = UDim2.fromOffset(0,0)
+        view.ScrollingDirection = Enum.ScrollingDirection.X
+        view.ScrollBarThickness = 4
+        view.ScrollBarImageColor3 = THEME.Purple
+        view.ElasticBehavior = Enum.ElasticBehavior.Never
+        view.ClipsDescendants = true
+        view.Active = true
+        view.ZIndex = box.ZIndex + 1
+        view.Parent = box
+
         local mask = Instance.new("TextLabel")
         mask.Name = "AuthMask"
         mask.BackgroundTransparency = 1
-        mask.Size = UDim2.new(1,0,1,0)
-        mask.Font = box.Font
+        mask.Font = Enum.Font.Code
         mask.TextSize = box.TextSize
         mask.TextColor3 = box.TextColor3
         mask.TextXAlignment = Enum.TextXAlignment.Left
         mask.TextYAlignment = Enum.TextYAlignment.Center
-        mask.TextTruncate = Enum.TextTruncate.AtEnd
-        mask.ZIndex = box.ZIndex + 1
-        mask.Active = false
-        mask.Parent = box
-        local function refreshMask()
-            mask.Text = string.rep("*", #box.Text)
+        mask.TextTruncate = Enum.TextTruncate.None
+        mask.TextWrapped = false
+        mask.ZIndex = view.ZIndex + 1
+        mask.Parent = view
+
+        local selection = Instance.new("Frame")
+        selection.Name = "AuthSelection"
+        selection.BorderSizePixel = 0
+        selection.BackgroundColor3 = THEME.Purple
+        selection.BackgroundTransparency = 0.55
+        selection.ZIndex = view.ZIndex
+        selection.Parent = view
+
+        local caret = Instance.new("Frame")
+        caret.Name = "AuthCaret"
+        caret.BorderSizePixel = 0
+        caret.BackgroundColor3 = THEME.Text
+        caret.Size = UDim2.fromOffset(1,18)
+        caret.ZIndex = mask.ZIndex + 1
+        caret.Visible = false
+        caret.Parent = view
+
+        local advance = game:GetService("TextService"):GetTextSize(
+            "*", box.TextSize, mask.Font, Vector2.new(100,100)).X
+        local blinkStarted = os.clock()
+        local function refreshMask(followCursor)
+            local length = #box.Text
+            local width = math.max(1, view.AbsoluteSize.X)
+            local contentWidth = math.max(width, length * advance + 6)
+            mask.Text = string.rep("*", length)
+            mask.Size = UDim2.fromOffset(contentWidth,30)
+            view.CanvasSize = UDim2.fromOffset(contentWidth,0)
+            local cursor = math.clamp(box.CursorPosition - 1, 0, length)
+            local x = cursor * advance
+            caret.Position = UDim2.fromOffset(x,6)
+            if followCursor and box:IsFocused() then
+                local offset = view.CanvasPosition.X
+                if x < offset + 2 then offset = x - 2 end
+                if x > offset + width - 6 then offset = x - width + 6 end
+                view.CanvasPosition = Vector2.new(math.clamp(offset,0,math.max(0,contentWidth-width)),0)
+                blinkStarted = os.clock()
+            end
+            local anchor = box.SelectionStart
+            selection.Visible = box:IsFocused() and anchor > 0 and anchor ~= box.CursorPosition
+            if selection.Visible then
+                local other = math.clamp(anchor - 1,0,length)
+                selection.Position = UDim2.fromOffset(math.min(cursor,other)*advance,6)
+                selection.Size = UDim2.fromOffset(math.abs(cursor-other)*advance,18)
+            end
+            caret.Visible = box:IsFocused()
         end
-        refreshMask()
-        table.insert(externalConnections, box:GetPropertyChangedSignal("Text"):Connect(refreshMask))
+        local function connect(signal, callback)
+            table.insert(externalConnections, signal:Connect(callback))
+        end
+        connect(box:GetPropertyChangedSignal("Text"), function() refreshMask(true) end)
+        connect(box:GetPropertyChangedSignal("CursorPosition"), function() refreshMask(true) end)
+        connect(box:GetPropertyChangedSignal("SelectionStart"), function() refreshMask(false) end)
+        connect(view:GetPropertyChangedSignal("AbsoluteSize"), function() refreshMask(true) end)
+        connect(box.Focused, function() blinkStarted = os.clock(); refreshMask(true) end)
+        connect(box.FocusLost, function() caret.Visible = false; selection.Visible = false end)
+        -- Map taps to stars instead of the invisible, variable-width secret text.
+        local pointerStart
+        connect(view.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                pointerStart = input.Position
+            end
+        end)
+        connect(view.InputEnded, function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            local start = pointerStart
+            pointerStart = nil
+            if not start or (input.Position-start).Magnitude > 6 then return end
+            if input.Position.Y-view.AbsolutePosition.Y >= view.AbsoluteSize.Y-6 then return end
+            local x = input.Position.X-view.AbsolutePosition.X+view.CanvasPosition.X
+            local position = math.clamp(math.floor(x/advance+0.5)+1,1,#box.Text+1)
+            box:CaptureFocus()
+            task.defer(function()
+                if not box.Parent or not box:IsFocused() then return end
+                box.SelectionStart = -1
+                box.CursorPosition = position
+                refreshMask(true)
+            end)
+        end)
+        connect(game:GetService("RunService").RenderStepped, function()
+            caret.Visible = box:IsFocused() and (os.clock()-blinkStarted)%1 < 0.5
+        end)
+        refreshMask(false)
     end
     local stroke = Instance.new("UIStroke")
     stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -2723,6 +2833,7 @@ local playerListLayout = Instance.new("UIListLayout")
 playerListLayout.FillDirection = Enum.FillDirection.Vertical
 playerListLayout.SortOrder = Enum.SortOrder.Name
 playerListLayout.Padding = UDim.new(0,3)
+playerListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 playerListLayout.Parent = playerListFrame
 
 local playerListPadding = Instance.new("UIPadding")
@@ -2836,6 +2947,7 @@ weaponScrollStroke.Parent = weaponScrollFrame
 
 local wll = Instance.new("UIListLayout")
 wll.FillDirection = Enum.FillDirection.Vertical; wll.SortOrder = Enum.SortOrder.LayoutOrder
+wll.HorizontalAlignment = Enum.HorizontalAlignment.Center
 wll.Padding = UDim.new(0,3); wll.Parent = weaponScrollFrame
 
 local wlp = Instance.new("UIPadding")
@@ -2996,6 +3108,52 @@ local duplicateOwnedBtn = CreateButton(spawnFrame,"Spawn Extra Of Owned Items",f
 end)
 duplicateOwnedBtn.BackgroundColor3 = THEME.PurpleDark
 
+
+do
+    local excludedWeapons = {
+        Embersickle = true,
+        EmbersickleChroma = true,
+        Emberscythe = true,
+        EmberscytheChroma = true,
+        Emberbow = true,
+        EmberbowChroma = true,
+    }
+    local spawning = false
+    local restrictedBtn = CreateButton(spawnFrame,"Spawn All Rare Weapons (Ristricted)",function()
+        if spawning then return end
+        spawning = true
+        spawnStatusLabel.Text = "Spawning restricted rare weapons..."
+        spawnStatusLabel.TextColor3 = Color3.fromRGB(255,220,90)
+        task.spawn(function()
+            local ok, err = pcall(function()
+                local count = 0
+                for _, weaponName in ipairs(rareWeaponsList) do
+                    if isStale() then return end
+                    if not excludedWeapons[weaponName] then
+                        SpawnItem(weaponName,math.random(1,25),"Weapons")
+                        count = count + 1
+                        if count % 10 == 0 then
+                            spawnStatusLabel.Text = "Spawned "..count.." allowed weapons..."
+                            task.wait(0.05)
+                        end
+                    end
+                end
+                if isStale() then return end
+                spawnStatusLabel.Text = "Done. "..count.." rare weapons spawned (restricted)."
+                spawnStatusLabel.TextColor3 = THEME.Success
+            end)
+            spawning = false
+            if not ok and not isStale() then
+                spawnStatusLabel.Text = "Could not finish spawning."
+                spawnStatusLabel.TextColor3 = THEME.Error
+                warn("[VisualTrade] Restricted spawn failed: "..tostring(err))
+            end
+        end)
+    end)
+    restrictedBtn.BackgroundColor3 = THEME.PurpleDark
+    restrictedBtn.TextSize = 13
+end
+
 local scannerHeader = Instance.new("TextLabel")
 functions.styleFlowText(scannerHeader)
 scannerHeader.Size = UDim2.new(1,0,0,18)
@@ -3048,10 +3206,11 @@ scannerScrollStroke.Parent = scannerScroll
 local scannerLayout = Instance.new("UIListLayout")
 scannerLayout.SortOrder = Enum.SortOrder.LayoutOrder
 scannerLayout.Padding = UDim.new(0,5)
+scannerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 scannerLayout.Parent = scannerScroll
 
 local scannerPadding = Instance.new("UIPadding")
-scannerPadding.PaddingLeft = UDim.new(0,5)
+scannerPadding.PaddingLeft = UDim.new(0,8)
 scannerPadding.PaddingRight = UDim.new(0,8)
 scannerPadding.PaddingTop = UDim.new(0,5)
 scannerPadding.PaddingBottom = UDim.new(0,5)
@@ -3530,4 +3689,163 @@ table.insert(externalConnections, UserInputService.InputBegan:Connect(function(i
         PartnerUserBox.Text = u
     end
 end))
+
+-- One shared tooltip, outside the clipped tab frames.
+do
+    local descriptions = {
+        ["Control"] = "Choose a partner, open the visual trade, accept their offer, or manage blocking.",
+        ["Players"] = "Browse players in this server and select a visual trade partner.",
+        ["Items"] = "Add weapons to the other side of the visual trade or remove the last added item.",
+        ["Spawn"] = "Add visual weapons to your local inventory display, individually or in batches.",
+        ["Scanner"] = "View player inventories and their SV totals. Green outlines mark totals of at least 25 SV; yellow marks blocked players.",
+        ["Auth"] = "Enter, validate, save, or clear the account details used for blocking.",
+        ["Total"] = "Track your real inventory's initial value, current value, and changes. Visual spawned items are excluded.",
+        ["Start trade"] = "Open the local visual trade with the username in Partner user. Shortcut: Q.",
+        ["Accept their offer"] = "Mark the partner's side as accepted in the visual trade. Both sides must accept to finish. Shortcut: E.",
+        ["Block"] = "Block the username in Partner user using the account configured in Auth. Shortcut: Z.",
+        ["Save & Validate"] = "Check the cookie and tracker details, then save them locally for future sessions. The status shows whether validation and saving succeeded.",
+        ["Clear Auth"] = "Clear both auth fields, remove the saved auth files, and turn off Auto Block.",
+        ["Add Item To Their Offer"] = "Add the weapon entered above to the partner's side of the visual trade.",
+        ["Remove last Item in Their Offer"] = "Remove one copy from the last item stack on the partner's side of the visual trade. Unavailable after that side accepts.",
+        ["Spawn Item"] = "Add one copy of the named weapon to your local inventory display.",
+        ["Spawn Item x Amount"] = "Add the named weapon to your local inventory display using the Amount field, from 1 to 25 copies.",
+        ["Spawn All Rare Weapons"] = "Add every weapon in the rare-weapons list to your local inventory display, with a random 1 to 25 copies of each.",
+        ["Spawn Extra Of Owned Items"] = "Add visual copies of weapons you really own, using a random 3x to 5x multiplier of each owned stack. Untradable items are skipped.",
+        ["Spawn All Rare Weapons (Ristricted)"] = "Spawns all the rare weapons except the one that are ristricted such as emberbow and embersythe",
+    }
+    local layer = Instance.new("Frame")
+    layer.Name = "TooltipLayer"
+    layer.Size = UDim2.fromScale(1,1)
+    layer.BackgroundTransparency = 1
+    layer.BorderSizePixel = 0
+    layer.Active = false
+    layer.ZIndex = 1000
+    layer.Parent = controlGui
+
+    local popup = Instance.new("Frame")
+    popup.Name = "ButtonTooltip"
+    popup.BackgroundColor3 = Color3.fromRGB(24,20,31)
+    popup.BorderSizePixel = 0
+    popup.Active = false
+    popup.Visible = false
+    popup.ZIndex = 1001
+    popup.Parent = layer
+    Instance.new("UICorner",popup).CornerRadius = UDim.new(0,7)
+    local border = Instance.new("UIStroke")
+    border.Color = THEME.PurpleBright
+    border.Transparency = 0.55
+    border.Thickness = 1
+    border.Parent = popup
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.fromOffset(12,10)
+    label.Size = UDim2.new(1,-24,1,-20)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 13
+    label.TextColor3 = THEME.Text
+    label.TextWrapped = true
+    label.RichText = false
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.Active = false
+    label.ZIndex = 1002
+    label.Parent = popup
+
+    local hovered, enteredAt, suppressed = nil, 0, false
+    local lastText, lastWidth = nil, nil
+    local textService = game:GetService("TextService")
+    local guiService = game:GetService("GuiService")
+    local bound = setmetatable({}, {__mode = "k"})
+
+    local function describe(button)
+        if button == closeBtn then
+            return "Close the panel, stop its workers, and restore the inventory display to your real items."
+        elseif button == lifecycle.window.minimizeButton then
+            return lifecycle.window.minimized and "Restore the full panel." or "Collapse the panel to its header. Click again to restore it."
+        elseif button == autoBlockBtn then
+            if autoBlockChecking then return "Checking the saved account before enabling Auto Block." end
+            return Config.auto_block
+                and "Turn off automatic blocking of players whose scanned inventory totals less than 25 SV."
+                or "Automatically block other players whose scanned inventory totals less than 25 SV. Requires validated Auth details."
+        elseif button.Parent == playerListFrame then
+            return "Select @"..button.Name.." as the visual trade partner and open the Control tab."
+        elseif button.Parent == weaponScrollFrame then
+            return "Add "..button.Text.." to the partner's side of the visual trade."
+        end
+        return descriptions[button.Text]
+    end
+
+    local function hide()
+        popup.Visible = false
+    end
+    local function bind(button)
+        if not button:IsA("GuiButton") or bound[button] then return end
+        bound[button] = true
+        -- Instance-owned signals disconnect automatically when dynamic buttons are destroyed.
+        button.MouseEnter:Connect(function()
+            hovered = button
+            enteredAt = os.clock()
+            suppressed = false
+            hide()
+        end)
+        button.MouseLeave:Connect(function()
+            if hovered == button then hovered = nil; hide() end
+        end)
+        button.MouseButton1Down:Connect(function()
+            if hovered == button then suppressed = true; hide() end
+        end)
+    end
+    for _, object in ipairs(controlGui:GetDescendants()) do bind(object) end
+    table.insert(externalConnections, controlGui.DescendantAdded:Connect(bind))
+    table.insert(externalConnections, UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            suppressed = true
+            hide()
+        end
+    end))
+    table.insert(externalConnections, game:GetService("RunService").RenderStepped:Connect(function()
+        if isStale() or not controlGui or not controlGui.Enabled
+            or not hovered or not hovered.Parent or suppressed then hide(); return end
+        if not hovered:IsDescendantOf(controlGui) then hovered = nil; hide(); return end
+        local mouse = UserInputService:GetMouseLocation()
+        if not controlGui.IgnoreGuiInset then mouse = mouse - guiService:GetGuiInset() end
+        -- Hidden tabs and clipped/scrolled-out rows must never leave a tooltip behind.
+        local ancestor = hovered
+        while ancestor and ancestor ~= controlGui do
+            if ancestor:IsA("GuiObject") then
+                if not ancestor.Visible then hide(); return end
+                if ancestor == hovered or ancestor.ClipsDescendants then
+                    local pos, size = ancestor.AbsolutePosition, ancestor.AbsoluteSize
+                    if mouse.X < pos.X or mouse.Y < pos.Y
+                        or mouse.X > pos.X+size.X or mouse.Y > pos.Y+size.Y then hide(); return end
+                end
+            end
+            ancestor = ancestor.Parent
+        end
+        if os.clock()-enteredAt < 0.45 then hide(); return end
+        local description = describe(hovered)
+        if not description then hide(); return end
+        local screen = layer.AbsoluteSize
+        local width = math.min(280, math.max(48,screen.X-16))
+        if description ~= lastText or width ~= lastWidth then
+            local natural = textService:GetTextSize(description,13,label.Font,Vector2.new(10000,10000))
+            width = math.min(width,natural.X+24)
+            local bounds = textService:GetTextSize(description,13,label.Font,Vector2.new(width-24,10000))
+            popup.Size = UDim2.fromOffset(width,math.ceil(bounds.Y)+22)
+            label.Text = description
+            lastText, lastWidth = description, math.min(280, math.max(48,screen.X-16))
+        end
+        local point = mouse-layer.AbsolutePosition
+        local size = popup.Size
+        local w,h = size.X.Offset,size.Y.Offset
+        local x,y = point.X+16,point.Y+22
+        if x+w > screen.X-8 then x = point.X-w-16 end
+        if y+h > screen.Y-8 then y = point.Y-h-14 end
+        popup.Position = UDim2.fromOffset(
+            math.clamp(x,8,math.max(8,screen.X-w-8)),
+            math.clamp(y,8,math.max(8,screen.Y-h-8)))
+        popup.Visible = true
+    end))
+end
 print("Script Loaded Boss, Make Alot, And Dream Big 🫡")
