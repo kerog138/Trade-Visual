@@ -1113,44 +1113,6 @@ watermark.TextXAlignment = Enum.TextXAlignment.Left
 watermark.ZIndex = 4
 watermark.Parent = headerBar
 
-local statusPill = Instance.new("Frame")
-statusPill.Size = UDim2.new(0,82,0,22)
-statusPill.Position = UDim2.new(1,-126,0.5,-11)
-statusPill.BackgroundColor3 = Color3.fromRGB(14,9,22)
-statusPill.BorderSizePixel = 0
-statusPill.ZIndex = 4
-statusPill.Parent = headerBar
-Instance.new("UICorner", statusPill).CornerRadius = UDim.new(1,0)
-
-local pillStroke = Instance.new("UIStroke")
-pillStroke.Color = THEME.Purple; pillStroke.Thickness = 1; pillStroke.Transparency = 0.25
-pillStroke.Parent = statusPill
-
-local pillDot = Instance.new("Frame")
-pillDot.Size = UDim2.new(0,6,0,6)
-pillDot.Position = UDim2.new(0,8,0.5,-3)
-pillDot.BackgroundColor3 = THEME.Success
-pillDot.BorderSizePixel = 0; pillDot.ZIndex = 5
-pillDot.Parent = statusPill
-Instance.new("UICorner", pillDot).CornerRadius = UDim.new(1,0)
-
-local pillLabel = Instance.new("TextLabel")
-pillLabel.Size = UDim2.new(1,-20,1,0)
-pillLabel.Position = UDim2.new(0,18,0,0)
-pillLabel.BackgroundTransparency = 1
-pillLabel.Text = "IDLE"
-pillLabel.Font = Enum.Font.GothamBold; pillLabel.TextSize = 9
-pillLabel.TextColor3 = THEME.Text; pillLabel.TextXAlignment = Enum.TextXAlignment.Center
-pillLabel.ZIndex = 5; pillLabel.Parent = statusPill
-
-task.spawn(function()
-    while not isStale() do
-        game:GetService("RunService").Heartbeat:Wait()
-        pillLabel.Text = Config.auto_block and "AUTO BLOCK" or (Config.in_trade and "IN TRADE" or "IDLE")
-        pillDot.BackgroundColor3 = Config.auto_block and THEME.Cyan or (Config.in_trade and THEME.Error or THEME.Success)
-    end
-end)
-
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0,26,0,26)
 closeBtn.Position = UDim2.new(1,-38,0.5,-13)
