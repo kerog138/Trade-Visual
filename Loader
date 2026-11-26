@@ -1999,8 +1999,9 @@ for i, tabName in ipairs(tabs) do
     tb.MouseLeave:Connect(function()
         if currentTab~=tabName then TweenService:Create(tb,TweenInfo.new(0.13),{BackgroundColor3=THEME.Panel2,BackgroundTransparency=0.28}):Play() end
     end)
-    -- Scanner has its own scrolling list; do not nest scroll containers.
-    local tf = Instance.new(tabName == "Scanner" and "Frame" or "ScrollingFrame")
+    -- These tabs keep their controls fixed and scroll only the inner list.
+    local hasInnerList = tabName == "Scanner" or tabName == "Items" or tabName == "Players"
+    local tf = Instance.new(hasInnerList and "Frame" or "ScrollingFrame")
     tf.BorderSizePixel = 0
     if tf:IsA("ScrollingFrame") then
         tf.CanvasSize = UDim2.new(0,0,0,0)
@@ -3689,6 +3690,70 @@ table.insert(externalConnections, UserInputService.InputBegan:Connect(function(i
         PartnerUserBox.Text = u
     end
 end))
+
+-- Fit list viewports to the space below their controls; use a single scroll surface.
+do
+    local function fillRemainingSpace(tab, list, listLayout, listPadding)
+        local outerLayout = tab:FindFirstChildOfClass("UIListLayout")
+        local outerPadding = tab:FindFirstChildOfClass("UIPadding")
+        list.AutomaticCanvasSize = Enum.AutomaticSize.None
+        list.AutomaticSize = Enum.AutomaticSize.None
+        list.ScrollingDirection = Enum.ScrollingDirection.Y
+        list.ScrollingEnabled = true
+        list.Active = true
+        list.ClipsDescendants = true
+        list.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+        list.LayoutOrder = 100
+        local function pixels(value, height)
+            return value.Offset + value.Scale * height
+        end
+        local function updateCanvas()
+            if isStale() or not list.Parent then return end
+            local height = math.ceil(listLayout.AbsoluteContentSize.Y
+                + pixels(listPadding.PaddingTop,list.AbsoluteSize.Y)
+                + pixels(listPadding.PaddingBottom,list.AbsoluteSize.Y))
+            local size = UDim2.fromOffset(0,height)
+            if list.CanvasSize ~= size then list.CanvasSize = size end
+            local maxY = math.max(0,height-list.AbsoluteWindowSize.Y)
+            local position = Vector2.new(0,math.clamp(list.CanvasPosition.Y,0,maxY))
+            if list.CanvasPosition ~= position then list.CanvasPosition = position end
+        end
+        local function updateViewport()
+            if isStale() or not tab.Parent or not list.Parent then return end
+            local height = tab.AbsoluteSize.Y
+            local used = pixels(outerPadding.PaddingTop,height)
+                + pixels(outerPadding.PaddingBottom,height)
+            local siblings = 0
+            for _, child in ipairs(tab:GetChildren()) do
+                if child:IsA("GuiObject") and child ~= list and child.Visible then
+                    used = used + child.AbsoluteSize.Y
+                    siblings = siblings + 1
+                end
+            end
+            used = used + siblings * pixels(outerLayout.Padding,height)
+            local size = UDim2.new(1,0,0,math.max(0,math.floor(height-used)))
+            if list.Size ~= size then list.Size = size end
+            updateCanvas()
+        end
+        local function watch(signal,callback)
+            table.insert(externalConnections,signal:Connect(callback))
+        end
+        watch(tab:GetPropertyChangedSignal("AbsoluteSize"),updateViewport)
+        watch(tab:GetPropertyChangedSignal("Visible"),updateViewport)
+        for _, child in ipairs(tab:GetChildren()) do
+            if child:IsA("GuiObject") and child ~= list then
+                watch(child:GetPropertyChangedSignal("AbsoluteSize"),updateViewport)
+                watch(child:GetPropertyChangedSignal("Visible"),updateViewport)
+            end
+        end
+        watch(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"),updateCanvas)
+        watch(list:GetPropertyChangedSignal("AbsoluteWindowSize"),updateCanvas)
+        updateViewport()
+        task.defer(updateViewport)
+    end
+    fillRemainingSpace(playersFrame,playerListFrame,playerListLayout,playerListPadding)
+    fillRemainingSpace(itemsFrame,weaponScrollFrame,wll,wlp)
+end
 
 -- One shared tooltip, outside the clipped tab frames.
 do
