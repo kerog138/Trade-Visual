@@ -264,6 +264,39 @@ if getgenv and getgenv()[PERSIST_KEY] then
     spoofed.Pets = spoofed.Pets or {}
 end
 
+-- Old versions could leave invalid visual IDs in ProfileData or persisted spoof tables.
+local invalidWeapons = {
+    Ripple=true, TidalChroma=true, Coast=true, DunesChroma=true,
+    DriftChroma=true, Surf=true, SurfChroma=true, SandyChroma=true,
+    Drift=true, Wave=true, Tidal=true, Cove=true, Dunes=true,
+    Shore=true, Tide=true, Shoreline=true,
+}
+local function removeInvalidWeapons()
+    local changed = false
+    for id in pairs(invalidWeapons) do
+        if trueValues.Weapons and trueValues.Weapons[id] ~= nil then
+            trueValues.Weapons[id] = nil
+            changed = true
+        end
+        if spoofed.Weapons and spoofed.Weapons[id] ~= nil then
+            spoofed.Weapons[id] = nil
+            changed = true
+        end
+    end
+    local weapons = ProfileData.Weapons
+    local owned = weapons and weapons.Owned
+    if type(owned) == "table" then
+        for id in pairs(invalidWeapons) do
+            if rawget(owned,id) ~= nil then
+                rawset(owned,id,nil)
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+removeInvalidWeapons()
+
 local function hookOwned(itemType, ownedTable)
     if type(ownedTable) ~= "table" then return end
     if not trueValues[itemType] then trueValues[itemType] = {} end
@@ -369,7 +402,7 @@ task.spawn(function()
     while not isStale() do
         task.wait(0.1)
         if isStale() then break end
-        local changed = false
+        local changed = removeInvalidWeapons()
         for itemType, data in pairs(ProfileData) do
             if type(data) == "table" then
                 local ok, ownedTable = pcall(function() return data.Owned end)
@@ -679,22 +712,23 @@ local function ScannerFormatNum(n)
 end
 
 local rareWeaponsList = {
-    "Icecream","IcecreamChroma","Emberbow","EmberbowChroma","Emberscythe","EmberscytheChroma","Mortal","MortalChroma","Immortal","ImmortalChroma","Embersickle","EmbersickleChroma",
-    "ElderwoodScythe","Icewing","Logchopper","Hallowscythe","Harvester","Icebreaker","VampireAxe","SwirlyAxe","TravelerAxe","Gingerscope","Icepiercer",
-    "SeerChroma","GemstoneChroma","DeathshardChroma","FangChroma","SawChroma","SlasherChroma","TidesChroma","HeatChroma","LugerChroma","SharkChroma",
-    "LaserChroma","ChromaDarkbringer","ChromaLightbringer","BonebladeChroma","GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma","Gingermint_KChroma",
-    "TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma","BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma",
-    "SunsetGunChroma","SwirlyGunChroma","VampireGunChroma","WatergunChroma","UFOKnifeChroma","SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma",
-    "TheSeer","Gemstone","Deathshard","Fang","Saw","Slasher","Tides","Heat","Eternal","Eternal2","Eternal3","Eternal4","EternalCane",
-    "BlueSeer","RedSeer","PurpleSeer","OrangeSeer","YellowSeer","Clockwork","Pixel","Virtual","Spider","Candy","Chill","Handsaw","Xmas","HallowsBlade",
-    "Flames","BattleAxe","Snowflake","IceShard","Boneblade","Pumpking","BattleAxe2","Gingerblade","WintersEdge","Frostsaber","Nightblade","Ghostblade",
-    "Frostbite","VampiresEdge","Cookieblade","Peppermint","Bioblade","Heartblade","Eggblade","Prismatic","Nebula","Candleflame","SwirlyBlade","Iceflake",
-    "Plasmablade","ElderwoodKnife","Sakura_K","Rainbow_K","Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom","SunsetKnife","XenoKnife","Celestial","SnowDagger",
-    "Blizzard","UFOKnife","BaubleKnife","Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane","Blaster","Amerilaser","Sugar","GreenLuger",
-    "RedLuger","ElderwoodGun","Minty","GingerLuger","Jinglegun","Iceblaster","Hallowgun","SwirlyGun","Icebeam","Plasmabeam","Makeshift","Spectre2022",
-    "Darkshot","TravelerGun","TreeGun2023","FlowerwoodGun","Watergun","VampireGun","Constellation","Bauble","Flora","SunsetGun","Raygun","XenoGun",
-    "Snowcannon","Snowstorm","Beachy","Sands","Sandy","Dunes","Shoreline","Surf","Tidal","Cove","Tide","Wave","Coast","Shore","Drift","Splash","Ripple",
-    "BeachyChroma","SandsChroma","SandyChroma","DunesChroma","SurfChroma","TidalChroma","DriftChroma",
+    "Icecream","IcecreamChroma","Emberbow","EmberbowChroma","Emberscythe","EmberscytheChroma","Mortal","MortalChroma","Immortal","ImmortalChroma",
+    "Embersickle","EmbersickleChroma","ElderwoodScythe","Icewing","Logchopper","Hallowscythe","Harvester","Icebreaker","VampireAxe","SwirlyAxe",
+    "TravelerAxe","Gingerscope","Icepiercer","SeerChroma","GemstoneChroma","DeathshardChroma","FangChroma","SawChroma","SlasherChroma","TidesChroma",
+    "HeatChroma","LugerChroma","SharkChroma","LaserChroma","ChromaDarkbringer","ChromaLightbringer","BonebladeChroma","GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma",
+    "Gingermint_KChroma","TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma","BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma","SunsetGunChroma",
+    "SwirlyGunChroma","VampireGunChroma","WatergunChroma","UFOKnifeChroma","SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma","TheSeer","Gemstone","Deathshard",
+    "Fang","Saw","Slasher","Tides","Heat","Eternal","Eternal2","Eternal3","Eternal4","EternalCane",
+    "BlueSeer","RedSeer","PurpleSeer","OrangeSeer","YellowSeer","Clockwork","Pixel","Virtual","Spider","Candy",
+    "Chill","Handsaw","Xmas","HallowsBlade","Flames","BattleAxe","Snowflake","IceShard","Boneblade","Pumpking",
+    "BattleAxe2","Gingerblade","WintersEdge","Frostsaber","Nightblade","Ghostblade","Frostbite","VampiresEdge","Cookieblade","Peppermint",
+    "Bioblade","Heartblade","Eggblade","Prismatic","Nebula","Candleflame","SwirlyBlade","Iceflake","Plasmablade","ElderwoodKnife",
+    "Sakura_K","Rainbow_K","Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom","SunsetKnife","XenoKnife","Celestial",
+    "SnowDagger","Blizzard","UFOKnife","BaubleKnife","Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane",
+    "Blaster","Amerilaser","Sugar","GreenLuger","RedLuger","ElderwoodGun","Minty","GingerLuger","Jinglegun","Iceblaster",
+    "Hallowgun","SwirlyGun","Icebeam","Plasmabeam","Makeshift","Spectre2022","Darkshot","TravelerGun","TreeGun2023","FlowerwoodGun",
+    "Watergun","VampireGun","Constellation","Bauble","Flora","SunsetGun","Raygun","XenoGun","Snowcannon","Snowstorm",
+    "Beachy","Sands","Sandy","Splash","BeachyChroma","SandsChroma"
 }
 
 local function CheckForItem(ItemName, Type)
@@ -724,6 +758,7 @@ local TradeTable = {
 }
 
 local function SpawnItem(ItemName, Amount, ItemType)
+    if (ItemType == nil or ItemType == "Weapons") and invalidWeapons[ItemName] then return end
     Amount = Amount or 1; ItemType = ItemType or "Weapons"
     pcall(function()
         if not spoofed[ItemType] then spoofed[ItemType] = {} end
@@ -741,6 +776,7 @@ local function SpawnItem(ItemName, Amount, ItemType)
 end
 
 local function GiveItem(ItemName, Amount, ItemType)
+    if (ItemType == nil or ItemType == "Weapons") and invalidWeapons[ItemName] then return end
     pcall(function()
         if not spoofed[ItemType] then spoofed[ItemType] = {} end
         spoofed[ItemType][ItemName] = (spoofed[ItemType][ItemName] or 0) + Amount
@@ -775,12 +811,15 @@ local function RemoveItem(ItemName, Amount, ItemType)
     end)
 end
 
-local function AcceptTrade()
+local function AcceptTrade(expectedTrade, canContinue)
     if not TradeTable then return end
+    local completingTrade = TradeTable
     if TradeTable["Player1"]["Accepted"] == true and TradeTable["Player2"]["Accepted"] == true then
         TradeTable["Locked"] = true
         task.wait(0.2)
         if isStale() then return end
+        if TradeTable ~= completingTrade then return end
+        if expectedTrade and (TradeTable ~= expectedTrade or not canContinue()) then return end
         if TradeTable["Player1"]["Offer"] and next(TradeTable["Player1"]["Offer"]) ~= nil then
             for _, item in pairs(TradeTable["Player1"]["Offer"]) do
                 pcall(function() RemoveItem(item[1], item[2], item[3]) end)
@@ -792,6 +831,7 @@ local function AcceptTrade()
                 pcall(function() _G.NewItem(item[1], "You Got...", nil, item[3], item[2]) end)
             end
         end
+        completingTrade.Completed = true
         pcall(function() TradeGUI.Enabled = false end)
         local partner = TradeTable.Player2 and TradeTable.Player2.Player or "kerog138"
         TradeTable = {
@@ -806,7 +846,7 @@ end
 local v84 = false
 local untradableItems = { ["DefaultKnife"]=true, ["DefaultGun"]=true }
 
-local function OfferItemLocalPlayer(ItemName, ItemType)
+local function OfferItemLocalPlayer(ItemName, ItemType, automated)
     if not TradeTable then return end
     if TradeTable["Locked"] == true then return end
     if untradableItems[ItemName] then return end
@@ -832,7 +872,7 @@ local function OfferItemLocalPlayer(ItemName, ItemType)
     TradeTable["LastOffer"] = os.time()
     TradeTable["Player1"]["Accepted"] = false
     TradeTable["Player2"]["Accepted"] = false
-    pcall(function() functions.UpdateTrade() end)
+    pcall(function() functions.UpdateTrade(automated) end)
 end
 
 local function RemoveItemLocalPlayer(ItemName, ItemType)
@@ -854,7 +894,7 @@ local function RemoveItemLocalPlayer(ItemName, ItemType)
     pcall(function() functions.UpdateTrade() end)
 end
 
-local function OfferItemAnotherPlayer(ItemName, ItemType)
+local function OfferItemAnotherPlayer(ItemName, ItemType, automated)
     if not ItemName or ItemName == "" then return false end
     if not TradeTable then return false end
     if TradeTable["Locked"] == true then return false end
@@ -883,7 +923,7 @@ local function OfferItemAnotherPlayer(ItemName, ItemType)
     TradeTable["LastOffer"] = os.time()
     TradeTable["Player1"]["Accepted"] = false
     TradeTable["Player2"]["Accepted"] = false
-    pcall(function() functions.UpdateTrade() end)
+    pcall(function() functions.UpdateTrade(automated) end)
     return true
 end
 
@@ -935,9 +975,11 @@ local function v34(v23, v24)
 end
 
 local v85 = 6
+local automatedCooldownVersion = 0
 local function ResetCooldown(arg1)
     if isStale() then return end
     if arg1 then
+        automatedCooldownVersion = automatedCooldownVersion + 1
         TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = false
         v85 = 0; v84 = false; return
     else
@@ -958,6 +1000,28 @@ local function ResetCooldown(arg1)
             v85 = 6
         end
     end
+end
+
+-- Automated offers show the normal countdown immediately without blocking item selection.
+local function restartAutomatedCooldown()
+    automatedCooldownVersion = automatedCooldownVersion + 1
+    local version = automatedCooldownVersion
+    local trade = TradeTable
+    v85 = 6
+    v84 = true
+    local display = TradeGUI.Container.Trade.Actions.Accept.Cooldown
+    display.Visible = true
+    display.Title.Text = " Please wait (6) before accepting."
+    task.spawn(function()
+        for remaining = 5, 0, -1 do
+            task.wait(1)
+            if isStale() or version ~= automatedCooldownVersion or TradeTable ~= trade then return end
+            v85 = remaining
+            display.Title.Text = " Please wait (" .. remaining .. ") before accepting."
+        end
+        v84 = false
+        display.Visible = false
+    end)
 end
 
 local function UpdateTradeInventory()
@@ -990,7 +1054,7 @@ local function UpdateTradeInventory()
 end
 
 local v35 = "Accept"
-functions.UpdateTrade = function()
+functions.UpdateTrade = function(automated)
     pcall(function()
         local Offer1 = TradeTable.Player1.Offer
         local Offer2 = TradeTable.Player2.Offer
@@ -998,6 +1062,7 @@ functions.UpdateTrade = function()
         v34(YourOffer, Offer1);   v34(TheirOffer, Offer2)
         v35 = "Accept"
         TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = false
+        TradeGUI.Container.Trade.Actions.Accept.ActionButton.Visible = true
         TradeGUI.Container.Trade.Actions.Accept.Cancel.Visible  = false
         YourOffer.Accepted.Visible  = false
         TheirOffer.Accepted.Visible = false
@@ -1005,7 +1070,11 @@ functions.UpdateTrade = function()
         local v44 = #Offer1 < 1 and #Offer2 < 1
         l_AddItem_0.Visible = v44
         UpdateTradeInventory()
-        ResetCooldown(v44)
+        if automated then
+            if v44 then ResetCooldown(true) else restartAutomatedCooldown() end
+        else
+            ResetCooldown(v44)
+        end
     end)
 end
 
@@ -1158,12 +1227,12 @@ controlGui.Enabled = true
 local guiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
 controlGui.Parent = guiParent
 
+local onRealTradeStarted
 table.insert(externalConnections, TradeRemotes.StartTrade.OnClientEvent:Connect(function(arg1, arg2)
     if isStale() then return end
-    if not controlGui or not controlGui.Enabled then return end
-    if getgenv and getgenv().Executed then return end
+    if not controlGui or not controlGui.Parent then return end
     if Config.in_trade then return end
-    pcall(functions.DeclineTrade)
+    if onRealTradeStarted then onRealTradeStarted(arg1,arg2) end
 end))
 
 local THEME = {
@@ -1812,6 +1881,7 @@ function lifecycle.cleanup(fromDestroy)
     if lifecycle.closed then return end
     lifecycle.closed = true
     if lifecycle.window and lifecycle.window.tween then lifecycle.window.tween:Cancel() end
+    local wasVisualTrade = Config.in_trade
     Config.in_trade = false
     Config.auto_block = false
     State.authRevision = State.authRevision + 1
@@ -1831,12 +1901,17 @@ function lifecycle.cleanup(fromDestroy)
         end
     end
     table.clear(lifecycle.threads)
+    if lifecycle.fakeLobbyFolder then
+        lifecycle.fakeLobbyFolder:Destroy()
+        lifecycle.fakeLobbyFolder = nil
+    end
     for _, connection in ipairs(externalConnections) do
         pcall(function() connection:Disconnect() end)
     end
     table.clear(externalConnections)
     functions.UnConnections()
 
+    removeInvalidWeapons()
     for obj, saved in pairs(savedMetatables) do
         local ok, err = pcall(function()
             local owned = obj.Owned
@@ -1860,12 +1935,14 @@ function lifecycle.cleanup(fromDestroy)
     table.clear(savedOwnedMetatables)
     table.clear(spoofed)
     table.clear(scannerBlockedUsers)
-    pcall(function()
-        TradeGUI.Enabled = false
-        YourOffer.Accepted.Visible = false
-        TheirOffer.Accepted.Visible = false
-        TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = false
-    end)
+    if wasVisualTrade then
+        pcall(function()
+            TradeGUI.Enabled = false
+            YourOffer.Accepted.Visible = false
+            TheirOffer.Accepted.Visible = false
+            TradeGUI.Container.Trade.Actions.Accept.Cooldown.Visible = false
+        end)
+    end
     pcall(function() game.ReplicatedStorage.Remotes.Inventory.InventoryDataChanged:Fire() end)
     TradeInventory = nil
     State.cookie = ""
@@ -2027,7 +2104,7 @@ for i, tabName in ipairs(tabs) do
     local layout = Instance.new("UIListLayout")
     layout.FillDirection = Enum.FillDirection.Vertical
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0,5)
+    layout.Padding = UDim.new(0,8)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.Parent = tf
     tabFrames[tabName] = tf
@@ -2043,13 +2120,12 @@ local authFrame    = tabFrames["Auth"]
 local totalFrame   = tabFrames["Total"]
 
 local function CreateSpace(f)
-    local s = Instance.new("Frame")
-    s.Size = UDim2.new(1,0,0,7); s.BackgroundTransparency = 1; s.Parent = f
+    -- Spacing is owned by the tab layout so every gap is identical.
 end
 
 local function CreateButton(f, text, fn, colorOverride)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1,0,0,34)
+    btn.Size = UDim2.new(1,0,0,36)
     btn.BackgroundColor3 = colorOverride or THEME.Panel2
     btn.BackgroundTransparency = 0.12
     btn.Text = text; btn.Font = Enum.Font.GothamBold; btn.TextSize = 14
@@ -2058,37 +2134,35 @@ local function CreateButton(f, text, fn, colorOverride)
     local st = Instance.new("UIStroke")
     st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     st.Color = THEME.PurpleDark; st.Thickness = 1; st.Transparency = 0.25; st.Parent = btn
+    local hovered, colorTween = false, nil
+    local function baseColor()
+        if btn:GetAttribute("ToggleActive") then return THEME.Success end
+        return hovered and THEME.PurpleDark or colorOverride or THEME.Panel2
+    end
+    local function paint(duration)
+        if colorTween then colorTween:Cancel() end
+        colorTween = TweenService:Create(btn,TweenInfo.new(duration or 0.18),{BackgroundColor3=baseColor()})
+        colorTween:Play()
+    end
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=THEME.PurpleDark}):Play()
+        hovered = true
+        paint(0.14)
         TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleBright,Thickness=1.5,Transparency=0}):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=colorOverride or THEME.Panel2}):Play()
+        hovered = false
+        paint(0.14)
         TweenService:Create(st,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
     end)
+    btn:GetAttributeChangedSignal("ToggleActive"):Connect(function() paint(0.16) end)
     btn.MouseButton1Click:Connect(function()
         if isStale() or not controlGui or not controlGui.Parent
             or not btn:IsDescendantOf(controlGui) then return end
-
-        TweenService:Create(btn,TweenInfo.new(0.07),{BackgroundColor3=THEME.Purple}):Play()
-        task.delay(0.08,function()
-            if isStale() or not controlGui or not controlGui.Parent
-                or not btn:IsDescendantOf(controlGui) then return end
-
-            local newColor = colorOverride or THEME.Panel2
-            if fn then
-                local ok, ret = xpcall(fn, debug.traceback)
-                if not ok then
-                    warn("[VisualTrade] Button '" .. text .. "' failed: " .. tostring(ret))
-                elseif typeof(ret) == "Color3" then
-                    newColor = ret
-                end
-            end
-
-            if isStale() or not controlGui or not controlGui.Parent
-                or not btn:IsDescendantOf(controlGui) then return end
-            TweenService:Create(btn,TweenInfo.new(0.18),{BackgroundColor3=newColor}):Play()
-        end)
+        paint(0.16)
+        if fn then
+            local ok, err = xpcall(fn,debug.traceback)
+            if not ok then warn("[VisualTrade] Button '"..text.."' failed: "..tostring(err)) end
+        end
     end)
     return btn
 end
@@ -2276,7 +2350,7 @@ CookieBox.Parent.LayoutOrder = 2
 TrackerBox.Parent.LayoutOrder = 3
 
 local authBtnRow = Instance.new("Frame")
-authBtnRow.Size = UDim2.new(1,0,0,34)
+authBtnRow.Size = UDim2.new(1,0,0,36)
 authBtnRow.BackgroundTransparency = 1
 authBtnRow.LayoutOrder = 4
 authBtnRow.Parent = authFrame
@@ -2543,7 +2617,7 @@ totalGainedStroke.Parent = totalGainedScroll
 
 local totalGainedLayout = Instance.new("UIListLayout")
 totalGainedLayout.SortOrder = Enum.SortOrder.LayoutOrder
-totalGainedLayout.Padding = UDim.new(0,3)
+totalGainedLayout.Padding = UDim.new(0,8)
 totalGainedLayout.Parent = totalGainedScroll
 
 local totalGainedPadding = Instance.new("UIPadding")
@@ -2667,9 +2741,9 @@ PartnerUserBox.FocusLost:Connect(function()
     TradeTable.Player2.Player = PartnerUserBox.Text
 end)
 CreateSpace(controlFrame)
-CreateButton(controlFrame, "Start trade", function() functions.StartTrade() end)
+local startTradeBtn = CreateButton(controlFrame, "Start trade", function() functions.StartTrade() end)
 CreateSpace(controlFrame)
-CreateButton(controlFrame, "Accept their offer", function()
+local acceptOfferBtn = CreateButton(controlFrame, "Accept their offer", function()
     if not next(TradeTable["Player1"]["Offer"]) and not next(TradeTable["Player2"]["Offer"]) then return end
     if v84 then return end
     TheirOffer.Accepted.Visible = true
@@ -2687,9 +2761,10 @@ blockStatusLabel.Font = Enum.Font.GothamBold
 blockStatusLabel.TextSize = 14
 blockStatusLabel.TextColor3 = THEME.Success
 blockStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+blockStatusLabel.LayoutOrder = 100
 blockStatusLabel.Parent = controlFrame
 
-CreateButton(controlFrame, "Block", function()
+local blockBtn = CreateButton(controlFrame, "Block", function()
     local name = PartnerUserBox.Text
     if not name or name == "" then 
         blockStatusLabel.Text = "Enter a username first."
@@ -2728,7 +2803,7 @@ end, THEME.Panel2)
 CreateSpace(controlFrame)
 
 local autoBlockBtn = Instance.new("TextButton")
-autoBlockBtn.Size = UDim2.new(1,0,0,34)
+autoBlockBtn.Size = UDim2.new(1,0,0,36)
 autoBlockBtn.BackgroundColor3 = THEME.Panel2
 autoBlockBtn.BackgroundTransparency = 0.12
 autoBlockBtn.Text = "Auto Block: OFF"
@@ -2742,11 +2817,9 @@ local autoSt = Instance.new("UIStroke")
 autoSt.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 autoSt.Color = THEME.PurpleDark; autoSt.Thickness = 1; autoSt.Transparency = 0.25; autoSt.Parent = autoBlockBtn
 autoBlockBtn.MouseEnter:Connect(function()
-    TweenService:Create(autoBlockBtn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,0,37)}):Play()
     TweenService:Create(autoSt,TweenInfo.new(0.14),{Color=THEME.PurpleBright,Thickness=1.5,Transparency=0}):Play()
 end)
 autoBlockBtn.MouseLeave:Connect(function()
-    TweenService:Create(autoBlockBtn,TweenInfo.new(0.14,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,0,34)}):Play()
     TweenService:Create(autoSt,TweenInfo.new(0.14),{Color=THEME.PurpleDark,Thickness=1,Transparency=0.25}):Play()
 end)
 refreshAutoBlockButton = function()
@@ -2800,6 +2873,16 @@ autoBlockBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
+local randomizeUser
+local randomUserBtn = CreateButton(controlFrame,"Randomize User",function() randomizeUser() end)
+randomUserBtn:SetAttribute("TooltipText","Generate a username and set it as the trade partner. Shortcut: R.")
+PartnerUserBox.Parent.LayoutOrder = 1
+startTradeBtn.LayoutOrder = 2
+acceptOfferBtn.LayoutOrder = 3
+blockBtn.LayoutOrder = 4
+autoBlockBtn.LayoutOrder = 5
+randomUserBtn.LayoutOrder = 6
+
 local playerListLabel = Instance.new("TextLabel")
 functions.styleFlowText(playerListLabel)
 playerListLabel.Size = UDim2.new(1,0,0,18)
@@ -2811,6 +2894,523 @@ playerListLabel.TextColor3 = THEME.PurpleBright
 playerListLabel.TextXAlignment = Enum.TextXAlignment.Left
 playerListLabel.Parent = playersFrame
 
+-- Eight client-only wandering avatar models. Clicking again replaces the old set.
+do
+    local Workspace = game:GetService("Workspace")
+    local TextChatService = game:GetService("TextChatService")
+    local RunService = game:GetService("RunService")
+    local PathfindingService = game:GetService("PathfindingService")
+    local thingsToSay = {
+        "yo thx bro", "legit!", "thats clean", "lol no way",
+        "w trade", "yo thats sick", "tysm", "all good", "bro nice", "wait fr",
+        "okay thats cool", "nah thats fire", "good stuff", "thx man",
+    }
+    local firstNames = {"pickle","cloud","ember","pixel","moss","toast","lunar","river",
+        "frost","lucky","tiny","blue","cozy","dusk","maple","panda"}
+    local suffixes = {"fox","bean","bird","wolf","star","mint","bunny","wave","cat","leaf"}
+    local generation = 0
+    local status = Instance.new("TextLabel")
+    functions.styleFlowText(status)
+    status.Size = UDim2.new(1,0,0,0)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.GothamBold
+    status.TextSize = 12
+    status.TextColor3 = THEME.Muted
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Text = ""
+    status.LayoutOrder = 7
+    status.Parent = playersFrame
+
+    local function groundNear(center, distance, referenceY)
+        local angle = math.random()*math.pi*2
+        local point = center+Vector3.new(math.cos(angle)*distance,0,math.sin(angle)*distance)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.RespectCanCollide = true
+        local ignored = {}
+        if lifecycle.fakeLobbyFolder then ignored[#ignored+1] = lifecycle.fakeLobbyFolder end
+        if Players.LocalPlayer.Character then ignored[#ignored+1] = Players.LocalPlayer.Character end
+        params.FilterDescendantsInstances = ignored
+        -- Start close to the current floor so a roof or platform above the lobby is not chosen.
+        local height = referenceY or center.Y
+        local hit = Workspace:Raycast(Vector3.new(point.X,height+5,point.Z),Vector3.new(0,-15,0),params)
+        if not hit or (referenceY and math.abs(hit.Position.Y-referenceY)>1.5) then return nil end
+        return hit.Position,hit.Instance
+    end
+    local function hasRoomAt(point,floorPart)
+        local params=OverlapParams.new()
+        params.FilterType=Enum.RaycastFilterType.Exclude
+        params.RespectCanCollide=true
+        local ignored={}
+        if lifecycle.fakeLobbyFolder then ignored[#ignored+1]=lifecycle.fakeLobbyFolder end
+        if Players.LocalPlayer.Character then ignored[#ignored+1]=Players.LocalPlayer.Character end
+        if floorPart and floorPart:IsA("BasePart") then
+            ignored[#ignored+1]=floorPart
+        end
+        params.FilterDescendantsInstances=ignored
+        return #Workspace:GetPartBoundsInBox(CFrame.new(point+Vector3.new(0,2.35,0)),
+            Vector3.new(2.4,4.4,2.4),params)==0
+    end
+    local function randomDescription()
+        local desc = Instance.new("HumanoidDescription")
+        local palette = {Color3.fromRGB(235,187,153),Color3.fromRGB(162,124,92),
+            Color3.fromRGB(105,75,58),Color3.fromRGB(247,218,188),Color3.fromRGB(190,151,115)}
+        local skin = palette[math.random(#palette)]
+        desc.HeadColor = skin
+        desc.LeftArmColor = skin
+        desc.RightArmColor = skin
+        desc.LeftLegColor = skin
+        desc.RightLegColor = skin
+        local tops = {Color3.fromRGB(48,75,124),Color3.fromRGB(32,125,102),
+            Color3.fromRGB(125,49,68),Color3.fromRGB(55,55,64),Color3.fromRGB(174,116,42)}
+        local bottoms = {Color3.fromRGB(34,47,76),Color3.fromRGB(65,54,48),
+            Color3.fromRGB(40,40,45),Color3.fromRGB(91,83,98)}
+        local shirtColor=tops[math.random(#tops)]
+        local pantsColor=bottoms[math.random(#bottoms)]
+        desc.TorsoColor = shirtColor
+        desc.LeftLegColor = pantsColor
+        desc.RightLegColor = pantsColor
+        desc.HeightScale = 0.9+math.random()*0.22
+        desc.WidthScale = 0.85+math.random()*0.25
+        desc.BodyTypeScale = math.random()*0.4
+        return desc
+    end
+    local animationPacks = {
+        {idle=707742142,walk=707897309,jump=707853694}, -- Mage
+        {idle=616158929,walk=616168032,jump=616161997}, -- Zombie
+        {idle=656117400,walk=656121766,jump=656117878}, -- Ninja
+        {idle=616136790,walk=616146177,jump=616139451}, -- Stylish
+        {idle=910004836,walk=910034870,jump=910016857}, -- Bubbly
+        {idle=742637544,walk=742640026,jump=742637942}, -- Cartoony
+        {idle=750781874,walk=750785693,jump=750782230}, -- Pirate
+        {idle=1083445855,walk=1083473930,jump=1083455352}, -- Vampire
+    }
+    local function animate(humanoid,pack)
+        local animator = humanoid:FindFirstChildOfClass("Animator")
+        if not animator then animator=Instance.new("Animator"); animator.Parent=humanoid end
+        local function load(assetId,priority)
+            local animation=Instance.new("Animation")
+            animation.AnimationId="rbxassetid://"..assetId
+            local ok,track=pcall(animator.LoadAnimation,animator,animation)
+            animation:Destroy()
+            if not ok then return nil end
+            track.Priority=priority
+            track.Looped=true
+            return track
+        end
+        local idle=load(pack.idle,Enum.AnimationPriority.Idle)
+        local walk=load(pack.walk,Enum.AnimationPriority.Movement)
+        local jump=load(pack.jump,Enum.AnimationPriority.Action)
+        if jump then jump.Looped=false end
+        if idle then idle:Play(0.15) end
+        local function setWalking(active)
+            if active then
+                if idle and idle.IsPlaying then idle:Stop(0.18) end
+                if walk and not walk.IsPlaying then walk:Play(0.18) end
+                if walk then walk:AdjustSpeed(0.85+math.random()*0.25) end
+            else
+                if walk and walk.IsPlaying then walk:Stop(0.2) end
+                if idle and not idle.IsPlaying then idle:Play(0.2) end
+            end
+        end
+        local function playJump()
+            if jump then jump:Play(0.1) end
+        end
+        return setWalking,playJump
+    end
+    local function placeModel(model,name,folder,mine,styleIndex,showNameplate)
+                if model then
+                    if isStale() or generation~=mine or not folder.Parent then model:Destroy(); return end
+                    local humanoid = model:FindFirstChildOfClass("Humanoid")
+                    local root = model:FindFirstChild("HumanoidRootPart")
+                    local character = Players.LocalPlayer.Character
+                    local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+                    if humanoid and root and localRoot then
+                        model.Name = name
+                        humanoid.DisplayName = name
+                        humanoid.WalkSpeed = math.random(8,12)
+                        humanoid.DisplayDistanceType = showNameplate
+                            and Enum.HumanoidDisplayDistanceType.None or Enum.HumanoidDisplayDistanceType.Subject
+                        humanoid.NameDisplayDistance = 100
+                        humanoid.HealthDisplayDistance = 0
+                        humanoid.NameOcclusion = Enum.NameOcclusion.NoOcclusion
+                        local playerGround = groundNear(localRoot.Position,0)
+                        local point
+                        if playerGround then
+                            for attempt=1,24 do
+                                local candidate,floorPart=groundNear(localRoot.Position,6+math.random()*12,playerGround.Y)
+                                if candidate and hasRoomAt(candidate,floorPart) then point=candidate; break end
+                            end
+                        end
+                        if not point then model:Destroy(); return false end
+                        -- The models are visual only. Physical collisions can tug at limbs and accessories.
+                        for _,part in ipairs(model:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide=false
+                                part.CanTouch=false
+                                part.CanQuery=false
+                            end
+                        end
+                        root.Anchored=true
+                        model.PrimaryPart=root
+                        model:PivotTo(CFrame.new(point+Vector3.new(0,model:GetExtentsSize().Y/2+2,0))
+                            *CFrame.Angles(0,math.random()*math.pi*2,0))
+                        -- Align the actual feet to the floor; model extents include hair and accessories.
+                        local lowestFoot=math.huge
+                        for _,footName in ipairs({"LeftFoot","RightFoot","LeftLowerLeg","RightLowerLeg"}) do
+                            local foot=model:FindFirstChild(footName)
+                            if foot and foot:IsA("BasePart") then
+                                lowestFoot=math.min(lowestFoot,foot.Position.Y-foot.Size.Y/2)
+                            end
+                        end
+                        if lowestFoot<math.huge then
+                            model:PivotTo(model:GetPivot()+Vector3.new(0,point.Y-lowestFoot+0.08,0))
+                        end
+                        model:SetAttribute("FloorOffset",root.Position.Y-point.Y)
+                        model.Parent = folder
+                        if showNameplate then
+                            local head=model:FindFirstChild("Head")
+                            if head and head:IsA("BasePart") then
+                                local plate=Instance.new("BillboardGui")
+                                plate.Name="MM2BlessingUsername"
+                                plate.Adornee=head
+                                plate.Size=UDim2.fromOffset(200,32)
+                                plate.StudsOffsetWorldSpace=Vector3.new(0,1.8,0)
+                                plate.MaxDistance=100
+                                plate.AlwaysOnTop=true
+                                plate.Parent=head
+                                local textLabel=Instance.new("TextLabel")
+                                textLabel.Size=UDim2.fromScale(1,1)
+                                textLabel.BackgroundTransparency=1
+                                textLabel.Font=Enum.Font.GothamBold
+                                textLabel.TextSize=15
+                                textLabel.TextColor3=Color3.fromRGB(255,255,255)
+                                textLabel.TextStrokeColor3=Color3.fromRGB(22,18,26)
+                                textLabel.TextStrokeTransparency=0.2
+                                textLabel.Text=name
+                                textLabel.Parent=plate
+                            end
+                        end
+                        local setWalking,playJump=animate(humanoid,animationPacks[(styleIndex-1)%#animationPacks+1])
+                        local floorOffset=model:GetAttribute("FloorOffset")
+                        local lastRecovery=-math.huge
+                        local function active()
+                            return not isStale() and generation==mine and model.Parent==folder
+                        end
+                        local function flatDistance(a,b)
+                            return (Vector3.new(a.X,0,a.Z)-Vector3.new(b.X,0,b.Z)).Magnitude
+                        end
+                        local function collisionParams(character)
+                            local ignored={folder}
+                            if character then ignored[#ignored+1]=character end
+                            local cast=RaycastParams.new()
+                            cast.FilterType=Enum.RaycastFilterType.Exclude
+                            cast.FilterDescendantsInstances=ignored
+                            cast.RespectCanCollide=true
+                            local overlap=OverlapParams.new()
+                            overlap.FilterType=Enum.RaycastFilterType.Exclude
+                            overlap.FilterDescendantsInstances=ignored
+                            overlap.RespectCanCollide=true
+                            return cast,overlap
+                        end
+                        local function recoverFromObstacle(character)
+                            if os.clock()-lastRecovery<7 or not active() then return false end
+                            local cast,overlap=collisionParams(character)
+                            local start=root.Position
+                            -- A wall or ceiling above the avatar cannot be cleared with a hop.
+                            if #Workspace:GetPartBoundsInBox(CFrame.new(start+Vector3.new(0,2.7,0)),
+                                Vector3.new(1.8,2.2,1.8),overlap)>0 then return false end
+                            local landing=start
+                            local floorY=start.Y-floorOffset
+                            for attempt=1,8 do
+                                local candidate,floorPart=groundNear(start,3+math.random()*2,floorY)
+                                if candidate and hasRoomAt(candidate,floorPart) then
+                                    local nextPosition=Vector3.new(candidate.X,candidate.Y+floorOffset,candidate.Z)
+                                    local sweep=Workspace:Blockcast(CFrame.new(start+Vector3.new(0,2.7,0)),
+                                        Vector3.new(1.8,2.2,1.8),nextPosition-start,cast)
+                                    if not sweep then landing=nextPosition; break end
+                                end
+                            end
+                            lastRecovery=os.clock()
+                            setWalking(false)
+                            playJump()
+                            local facing=landing-start
+                            facing=Vector3.new(facing.X,0,facing.Z)
+                            facing=facing.Magnitude>0.1 and facing.Unit or root.CFrame.LookVector
+                            local begun=os.clock()
+                            repeat
+                                RunService.PreSimulation:Wait()
+                                if not active() then return false end
+                                local alpha=math.clamp((os.clock()-begun)/0.7,0,1)
+                                local position=start:Lerp(landing,alpha)+Vector3.new(0,math.sin(alpha*math.pi)*2.7,0)
+                                root.CFrame=CFrame.lookAt(position,position+facing)
+                            until os.clock()-begun>=0.7
+                            root.CFrame=CFrame.lookAt(landing,landing+facing)
+                            return true
+                        end
+                        local function walkSegment(target,jump,character,shouldReplan)
+                            local start=root.Position
+                            local direction=Vector3.new(target.X-start.X,0,target.Z-start.Z)
+                            if direction.Magnitude<1.2 and math.abs(target.Y-start.Y)<0.8 then return true,false end
+                            local facing=direction.Magnitude>0.1 and direction.Unit or root.CFrame.LookVector
+                            local original=root.CFrame
+                            local duration=math.clamp((target-start).Magnitude/7,0.35,3.5)
+                            local cast=collisionParams(character)
+                            local begun=os.clock()
+                            setWalking(true)
+                            if jump then playJump() end
+                            repeat
+                                RunService.PreSimulation:Wait()
+                                if not active() then setWalking(false); return false,false end
+                                if shouldReplan and shouldReplan() then
+                                    setWalking(false)
+                                    return false,false
+                                end
+                                local alpha=math.clamp((os.clock()-begun)/duration,0,1)
+                                local eased=alpha*alpha*(3-2*alpha)
+                                local position=start:Lerp(target,eased)
+                                if jump then position=position+Vector3.new(0,math.sin(alpha*math.pi)*2.7,0) end
+                                local movement=position-root.Position
+                                if movement.Magnitude>0.01 then
+                                    local hit=Workspace:Blockcast(CFrame.new(root.Position),
+                                        Vector3.new(2.2,2.6,2.2),movement,cast)
+                                    if hit then
+                                        if jump then root.CFrame=original end
+                                        setWalking(false)
+                                        return false,true
+                                    end
+                                end
+                                root.CFrame=CFrame.lookAt(position,position+facing)
+                            until os.clock()-begun>=duration
+                            setWalking(false)
+                            return true,false
+                        end
+                        task.spawn(function()
+                            while active() do
+                                task.wait(1+math.random()*0.5)
+                                if not active() then break end
+                                local character=Players.LocalPlayer.Character
+                                local playerRoot=character and character:FindFirstChild("HumanoidRootPart")
+                                local _,overlap=collisionParams(character)
+                                local embedded=#Workspace:GetPartsInPart(root,overlap)>0
+                                if embedded then
+                                    recoverFromObstacle(character)
+                                    embedded=#Workspace:GetPartsInPart(root,overlap)>0
+                                end
+                                if not embedded and playerRoot and flatDistance(root.Position,playerRoot.Position)>10 then
+                                    local playerGround=groundNear(playerRoot.Position,0)
+                                    local goal
+                                    if playerGround then
+                                        for attempt=1,6 do
+                                            local spot,floorPart=groundNear(playerRoot.Position,4+math.random()*3,playerGround.Y)
+                                            if spot and hasRoomAt(spot,floorPart) then
+                                                goal=Vector3.new(spot.X,spot.Y+floorOffset,spot.Z)
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if goal then
+                                        local path=PathfindingService:CreatePath({
+                                            AgentRadius=2,AgentHeight=5,AgentCanJump=true,WaypointSpacing=4,
+                                        })
+                                        local computed=pcall(path.ComputeAsync,path,root.Position,goal)
+                                        if not active() then path:Destroy(); break end
+                                        if computed and path.Status==Enum.PathStatus.Success then
+                                            local waypoints=path:GetWaypoints()
+                                            local waypointIndex=2
+                                            local blocked=false
+                                            local blockedConnection=path.Blocked:Connect(function(index)
+                                                if index>=waypointIndex then blocked=true end
+                                            end)
+                                            local plannedPlayerPosition=playerRoot.Position
+                                            for index=2,math.min(#waypoints,10) do
+                                                if not active() or blocked then break end
+                                                waypointIndex=index
+                                                local liveRoot=character and character:FindFirstChild("HumanoidRootPart")
+                                                if not liveRoot or flatDistance(root.Position,liveRoot.Position)<8
+                                                    or flatDistance(plannedPlayerPosition,liveRoot.Position)>13 then break end
+                                                local waypoint=waypoints[index]
+                                                local ground=groundNear(waypoint.Position,0)
+                                                if not ground then break end
+                                                local target=Vector3.new(ground.X,ground.Y+floorOffset,ground.Z)
+                                                local reached,obstructed=walkSegment(target,
+                                                    waypoint.Action==Enum.PathWaypointAction.Jump,character,
+                                                    function() return blocked end)
+                                                if obstructed then recoverFromObstacle(character); break end
+                                                if not reached then break end
+                                            end
+                                            blockedConnection:Disconnect()
+                                        else
+                                            local cast=collisionParams(character)
+                                            local start=root.Position
+                                            local toward=Vector3.new(goal.X-start.X,0,goal.Z-start.Z)
+                                            if toward.Magnitude>0.1 then
+                                                local step=start+toward.Unit*math.min(toward.Magnitude,9)
+                                                local floor=groundNear(step,0,start.Y-floorOffset)
+                                                if floor then
+                                                    local target=Vector3.new(floor.X,floor.Y+floorOffset,floor.Z)
+                                                    local movement=target-start
+                                                    if not Workspace:Blockcast(CFrame.new(start),
+                                                        Vector3.new(2.2,2.6,2.2),movement,cast) then
+                                                        local _,obstructed=walkSegment(target,false,character)
+                                                        if obstructed then recoverFromObstacle(character) end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        path:Destroy()
+                                    end
+                                elseif not embedded and math.random()<0.08 then
+                                    local floorY=root.Position.Y-floorOffset
+                                    local ground=groundNear(root.Position,2+math.random()*2,floorY)
+                                    if ground then
+                                        local target=Vector3.new(ground.X,ground.Y+floorOffset,ground.Z)
+                                        local _,obstructed=walkSegment(target,false,character)
+                                        if obstructed then recoverFromObstacle(character) end
+                                    end
+                                end
+                            end
+                        end)
+                    else
+                        model:Destroy()
+                    end
+                end
+                return model.Parent==folder
+    end
+    local function spawnLobby()
+        generation = generation+1
+        local mine = generation
+        if lifecycle.fakeLobbyFolder then lifecycle.fakeLobbyFolder:Destroy() end
+        local folder = Instance.new("Folder")
+        folder.Name = "MM2BlessingClientLobby"
+        folder.Parent = Workspace
+        lifecycle.fakeLobbyFolder = folder
+        status.Text = "Spawning 8 client-side avatars..."
+        task.spawn(function()
+            local created = 0
+            for i=1,8 do
+                if isStale() or generation~=mine or not folder.Parent then return end
+                local model
+                -- Sample ordinary accounts instead of a recognizable username list.
+                for attempt=1,5 do
+                    if isStale() or generation~=mine or not folder.Parent then return end
+                    local id = math.random(100000,1000000000)
+                    local got,description = pcall(Players.GetHumanoidDescriptionFromUserIdAsync,Players,id)
+                    if got and description then
+                        local loaded,result = pcall(Players.CreateHumanoidModelFromDescriptionAsync,
+                            Players,description,Enum.HumanoidRigType.R15)
+                        description:Destroy()
+                        if loaded and result then
+                            local size=result:GetExtentsSize()
+                            if size.X<=8.5 and size.Y<=9.5 and size.Z<=8.5 then
+                                model=result
+                                break
+                            end
+                            result:Destroy()
+                        end
+                    end
+                end
+                if not model then
+                    local desc = randomDescription()
+                    local loaded,result = pcall(Players.CreateHumanoidModelFromDescriptionAsync,
+                        Players,desc,Enum.HumanoidRigType.R15)
+                    desc:Destroy()
+                    if loaded then model=result end
+                end
+                local name = firstNames[math.random(#firstNames)]..
+                    suffixes[math.random(#suffixes)]..tostring(math.random(10,999))
+                if model and placeModel(model,name,folder,mine,i) then created=created+1 end
+                status.Text = "Spawned "..created.."/8 client-side avatars"
+                task.wait(0.15)
+            end
+            status.Text = "Spawned "..created.." client-side avatars. Click again to replace them."
+        end)
+    end
+    local summonBox=createSettingRow("Username to summon:","",playersFrame)
+    summonBox.Parent.LayoutOrder=4
+    local function summonUser()
+        local username=(summonBox.Text or ""):match("^%s*(.-)%s*$")
+        if username=="" then status.Text="Enter a username first."; return end
+        task.spawn(function()
+            status.Text="Loading @"..username.."..."
+            local ok,id=pcall(Players.GetUserIdFromNameAsync,Players,username)
+            if not ok or not id then status.Text="Username not found: "..username; return end
+            local named,canonical=pcall(Players.GetNameFromUserIdAsync,Players,id)
+            if named and type(canonical)=="string" and canonical~="" then username=canonical end
+            local got,description=pcall(Players.GetHumanoidDescriptionFromUserIdAsync,Players,id)
+            if not got or not description then status.Text="Could not load avatar: "..username; return end
+            local made,model=pcall(Players.CreateHumanoidModelFromDescriptionAsync,
+                Players,description,Enum.HumanoidRigType.R15)
+            description:Destroy()
+            if not made or not model then status.Text="Could not create avatar: "..username; return end
+            local folder=lifecycle.fakeLobbyFolder
+            if not folder or not folder.Parent then
+                folder=Instance.new("Folder")
+                folder.Name="MM2BlessingClientLobby"
+                folder.Parent=Workspace
+                lifecycle.fakeLobbyFolder=folder
+            end
+            if placeModel(model,username,folder,generation,math.random(#animationPacks),true) then
+                status.Text="Summoned @"..username.." locally."
+            else
+                status.Text="Could not place @"..username.."."
+            end
+        end)
+    end
+    local button = CreateButton(playersFrame,"Spawn Full Lobby",spawnLobby)
+    button.LayoutOrder = 2
+    button:SetAttribute("TooltipText","Spawn eight client-only avatar models near you. They mostly hang out, occasionally walk and jump; click again to replace them.")
+    local positiveButton = CreateButton(playersFrame,"Postive text",function()
+        local folder=lifecycle.fakeLobbyFolder
+        local character=Players.LocalPlayer.Character
+        local localRoot=character and character:FindFirstChild("HumanoidRootPart")
+        if not folder or not folder.Parent or not localRoot then
+            status.Text="Spawn a lobby first."
+            return
+        end
+        local nearest,best=nil,math.huge
+        for _,model in ipairs(folder:GetChildren()) do
+            local root=model:FindFirstChild("HumanoidRootPart")
+            if root then
+                local distance=(root.Position-localRoot.Position).Magnitude
+                if distance<best then nearest,best=model,distance end
+            end
+        end
+        if not nearest then status.Text="No avatar is ready yet."; return end
+        local head=nearest:FindFirstChild("Head")
+        if not head then return end
+        local last=nearest:GetAttribute("LastPhrase")
+        local phrase
+        repeat phrase=thingsToSay[math.random(#thingsToSay)] until phrase~=last
+        nearest:SetAttribute("LastPhrase",phrase)
+        pcall(TextChatService.DisplayBubble,TextChatService,head,phrase)
+        local channels=TextChatService:FindFirstChild("TextChannels")
+        local general=channels and channels:FindFirstChild("RBXGeneral")
+        if general then
+            pcall(general.DisplaySystemMessage,general,nearest.Name..": "..phrase,"MM2BlessingLobby")
+        end
+        status.TextColor3=THEME.Success
+        status.Font=Enum.Font.GothamBold
+        status.Text=nearest.Name.." said: "..phrase
+    end)
+    positiveButton.LayoutOrder=3
+    positiveButton:SetAttribute("TooltipText","Make the nearest spawned avatar say one casual positive phrase locally.")
+    local summonButton=CreateButton(playersFrame,"Summon Specific User",summonUser)
+    summonButton.LayoutOrder=5
+    summonButton:SetAttribute("TooltipText","Spawn the avatar for the username above on your client only.")
+    local deleteButton = CreateButton(playersFrame,"Delete Full Lobby",function()
+        generation = generation+1
+        if lifecycle.fakeLobbyFolder then
+            lifecycle.fakeLobbyFolder:Destroy()
+            lifecycle.fakeLobbyFolder=nil
+        end
+        status.Text = "Client-side lobby removed."
+    end)
+    deleteButton.LayoutOrder = 6
+    deleteButton:SetAttribute("TooltipText","Remove all avatars created by Spawn Full Lobby.")
+    playerListLabel.LayoutOrder = 1
+end
+
 local playerListFrame = Instance.new("ScrollingFrame")
 playerListFrame.Size = UDim2.new(1,0,0,300)
 playerListFrame.BackgroundColor3 = THEME.Black
@@ -2820,6 +3420,7 @@ playerListFrame.ScrollBarThickness = 4
 playerListFrame.ScrollBarImageColor3 = THEME.Purple
 playerListFrame.CanvasSize = UDim2.new(0,0,0,0)
 playerListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+playerListFrame.LayoutOrder = 8
 playerListFrame.Parent = playersFrame
 Instance.new("UICorner",playerListFrame).CornerRadius = UDim.new(0,8)
 
@@ -2833,7 +3434,7 @@ playerListStroke.Parent = playerListFrame
 local playerListLayout = Instance.new("UIListLayout")
 playerListLayout.FillDirection = Enum.FillDirection.Vertical
 playerListLayout.SortOrder = Enum.SortOrder.Name
-playerListLayout.Padding = UDim.new(0,3)
+playerListLayout.Padding = UDim.new(0,8)
 playerListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 playerListLayout.Parent = playerListFrame
 
@@ -2871,7 +3472,7 @@ local function RebuildPlayerList()
         local ok, button = pcall(Instance.new, "TextButton")
         if not ok or not button then return end
         button.Name = playerName
-        button.Size = UDim2.new(1,0,0,34)
+        button.Size = UDim2.new(1,0,0,36)
         button.BackgroundColor3 = THEME.Panel2
         button.BackgroundTransparency = 0.18
         button.BorderSizePixel = 0
@@ -2949,43 +3550,30 @@ weaponScrollStroke.Parent = weaponScrollFrame
 local wll = Instance.new("UIListLayout")
 wll.FillDirection = Enum.FillDirection.Vertical; wll.SortOrder = Enum.SortOrder.LayoutOrder
 wll.HorizontalAlignment = Enum.HorizontalAlignment.Center
-wll.Padding = UDim.new(0,3); wll.Parent = weaponScrollFrame
+wll.Padding = UDim.new(0,8); wll.Parent = weaponScrollFrame
 
 local wlp = Instance.new("UIPadding")
 wlp.PaddingTop=UDim.new(0,4); wlp.PaddingBottom=UDim.new(0,4)
 wlp.PaddingLeft=UDim.new(0,4); wlp.PaddingRight=UDim.new(0,4); wlp.Parent = weaponScrollFrame
 
 local allWeaponsList = {
-    "Icecream","Emberbow","Emberscythe","Mortal","Immortal","Embersickle",
-    "ElderwoodScythe","Icewing","Logchopper","Hallowscythe","Harvester",
-    "Icebreaker","IceHammer","VampireAxe","SwirlyAxe","TravelerAxe","Gingerscope","Icepiercer",
-    "SeerChroma","GemstoneChroma","DeathshardChroma","FangChroma","SawChroma",
-    "SlasherChroma","TidesChroma","HeatChroma","LugerChroma","SharkChroma",
-    "LaserChroma","ChromaDarkbringer","ChromaLightbringer","BonebladeChroma",
-    "GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma","Gingermint_KChroma",
-    "TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma",
-    "BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma","SunsetGunChroma",
-    "SwirlyGunChroma","VampireGunChroma","WatergunChroma","TravelerGunChroma",
-    "UFOKnifeChroma","SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma",
-    "TheSeer","Gemstone","Deathshard","Fang","Saw","Slasher","Tides","Heat",
-    "Eternal","Eternal2","Eternal3","Eternal4","EternalCane",
-    "BlueSeer","RedSeer","PurpleSeer","OrangeSeer","YellowSeer",
-    "Clockwork","Pixel","Virtual","BigKill","Spider","Candy","Chill","Handsaw",
-    "Xmas","HallowsBlade","IceDragon","Flames","BattleAxe",
-    "Snowflake","IceShard","Boneblade","Pumpking","BattleAxe2","Gingerblade",
-    "WintersEdge","Frostsaber","Nightblade","Ghostblade","Frostbite","VampiresEdge",
-    "Cookieblade","Peppermint","Bioblade","Heartblade","Eggblade","Prismatic","Nebula",
-    "Candleflame","SwirlyBlade","Iceflake","Plasmablade","ElderwoodKnife",
-    "Sakura_K","Rainbow_K","Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom",
-    "SunsetKnife","XenoKnife","Celestial","SnowDagger","Blizzard","UFOKnife","BaubleKnife",
-    "Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane","Blaster",
-    "Amerilaser","Sugar","GreenLuger","RedLuger","ElderwoodGun","Minty",
-    "GingerLuger","Jinglegun","Iceblaster","Hallowgun","SwirlyGun","Icebeam",
-    "Plasmabeam","Makeshift","Spectre2022","Darkshot","TravelerGun","TreeGun2023",
-    "FlowerwoodGun","Watergun","VampireGun","Constellation","Bauble","Flora",
-    "SunsetGun","Raygun","XenoGun","Snowcannon","Snowstorm",
-    "Beachy","Sands","Sandy","Dunes","Shoreline","Surf","Tidal","Cove",
-    "Tide","Wave","Coast","Shore","Drift","Splash","Ripple",
+    "Icecream","Emberbow","Emberscythe","Mortal","Immortal","Embersickle","ElderwoodScythe","Icewing","Logchopper","Hallowscythe",
+    "Harvester","Icebreaker","IceHammer","VampireAxe","SwirlyAxe","TravelerAxe","Gingerscope","Icepiercer","SeerChroma","GemstoneChroma",
+    "DeathshardChroma","FangChroma","SawChroma","SlasherChroma","TidesChroma","HeatChroma","LugerChroma","SharkChroma","LaserChroma","ChromaDarkbringer",
+    "ChromaLightbringer","BonebladeChroma","GingerbladeChroma","CandleflameChroma","ElderwoodKnifeChroma","Gingermint_KChroma","TreeGun2023Chroma","TreeKnife2023Chroma","ConstellationChroma","BaubleChroma",
+    "BlizzardChroma","RaygunChroma","SnowDaggerChroma","SunsetKnifeChroma","SunsetGunChroma","SwirlyGunChroma","VampireGunChroma","WatergunChroma","TravelerGunChroma","UFOKnifeChroma",
+    "SnowstormChroma","SnowcannonChroma","BaubleKnifeChroma","TheSeer","Gemstone","Deathshard","Fang","Saw","Slasher","Tides",
+    "Heat","Eternal","Eternal2","Eternal3","Eternal4","EternalCane","BlueSeer","RedSeer","PurpleSeer","OrangeSeer",
+    "YellowSeer","Clockwork","Pixel","Virtual","BigKill","Spider","Candy","Chill","Handsaw","Xmas",
+    "HallowsBlade","IceDragon","Flames","BattleAxe","Snowflake","IceShard","Boneblade","Pumpking","BattleAxe2","Gingerblade",
+    "WintersEdge","Frostsaber","Nightblade","Ghostblade","Frostbite","VampiresEdge","Cookieblade","Peppermint","Bioblade","Heartblade",
+    "Eggblade","Prismatic","Nebula","Candleflame","SwirlyBlade","Iceflake","Plasmablade","ElderwoodKnife","Sakura_K","Rainbow_K",
+    "Waves_K","Darksword","TreeKnife2023","FlowerwoodKnife","Bloom","SunsetKnife","XenoKnife","Celestial","SnowDagger","Blizzard",
+    "UFOKnife","BaubleKnife","Darkbringer","Lightbringer","Luger","Shark","Laser","Lugercane","Blaster","Amerilaser",
+    "Sugar","GreenLuger","RedLuger","ElderwoodGun","Minty","GingerLuger","Jinglegun","Iceblaster","Hallowgun","SwirlyGun",
+    "Icebeam","Plasmabeam","Makeshift","Spectre2022","Darkshot","TravelerGun","TreeGun2023","FlowerwoodGun","Watergun","VampireGun",
+    "Constellation","Bauble","Flora","SunsetGun","Raygun","XenoGun","Snowcannon","Snowstorm","Beachy","Sands",
+    "Sandy","Splash"
 }
 
 for _, weaponName in ipairs(allWeaponsList) do
@@ -2998,7 +3586,7 @@ for _, weaponName in ipairs(allWeaponsList) do
         string.find(lowerWeaponName, "silver", 1, true) ~= nil
     if untradableItems[weaponName] or isChroma or isLeaderboardVariant then continue end
     local wb = Instance.new("TextButton")
-    wb.Size = UDim2.new(1,-6,0,34)
+    wb.Size = UDim2.new(1,-6,0,36)
     wb.BackgroundColor3 = THEME.Panel2; wb.BackgroundTransparency = 0.15
     wb.Text = weaponName; wb.Font = Enum.Font.GothamBold; wb.TextSize = 14
     wb.TextColor3 = THEME.Text; wb.TextTruncate = Enum.TextTruncate.AtEnd
@@ -3023,7 +3611,7 @@ local spawnStatusLabel = Instance.new("TextLabel")
 functions.styleFlowText(spawnStatusLabel)
 spawnStatusLabel.Size = UDim2.new(1,0,0,22); spawnStatusLabel.BackgroundTransparency = 1
 spawnStatusLabel.Text = ""; spawnStatusLabel.Font = Enum.Font.GothamBold; spawnStatusLabel.TextSize = 14
-spawnStatusLabel.TextColor3 = THEME.Success; spawnStatusLabel.Parent = spawnFrame
+spawnStatusLabel.TextColor3 = THEME.Success; spawnStatusLabel.Parent = spawnFrame; spawnStatusLabel.LayoutOrder = 100
 
 CreateButton(spawnFrame,"Spawn Item",function()
     if spawnItemName == "" then spawnStatusLabel.Text="Enter an item name!"; spawnStatusLabel.TextColor3=THEME.Error; return end
@@ -3594,43 +4182,7 @@ lifecycle.window.tween = TweenService:Create(mainFrame,TweenInfo.new(0.52,Enum.E
 })
 lifecycle.window.tween:Play()
 
-table.insert(externalConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if isStale() then return end
-    if gameProcessed then return end
-    if not controlGui or not controlGui.Enabled or not controlGui.Parent then return end
-    if input.KeyCode == Keybinds.StartTrade then
-        functions.StartTrade()
-    elseif input.KeyCode == Keybinds.AcceptTrade then
-        if next(TradeTable.Player1.Offer) or next(TradeTable.Player2.Offer) then
-            if not v84 then
-                TheirOffer.Accepted.Visible = true
-                TradeTable.Player2.Accepted = true
-                AcceptTrade()
-            end
-        end
-    elseif input.KeyCode == Keybinds.BlockPlayer then
-        local name = PartnerUserBox.Text
-        if name ~= "" and State.cookie ~= "" then
-            task.spawn(function()
-                blockStatusLabel.Text = "Blocking " .. name .. "..."
-                blockStatusLabel.TextColor3 = THEME.Gold
-                local target, err = resolveUsername(name)
-                if target then 
-                    local ok, berr = doBlock(target.id) 
-                    if ok then
-                        blockStatusLabel.Text = "Successfully blocked " .. target.name
-                        blockStatusLabel.TextColor3 = THEME.Success
-                    else
-                        blockStatusLabel.Text = "Failed: " .. tostring(berr)
-                        blockStatusLabel.TextColor3 = THEME.Error
-                    end
-                else
-                    blockStatusLabel.Text = "Failed: " .. tostring(err)
-                    blockStatusLabel.TextColor3 = THEME.Error
-                end
-            end)
-        end
-    elseif input.KeyCode == Keybinds.RandomPlayer then
+randomizeUser = function()
         local pre = {
             "alex","ali","amelia","amy","ana","andrew","anna","aria","ash","ava",
             "avery","bea","ben","blake","brooke","caleb","cam","cara","charlie","chloe",
@@ -3688,6 +4240,46 @@ table.insert(externalConnections, UserInputService.InputBegan:Connect(function(i
         end
         TradeTable.Player2.Player = u
         PartnerUserBox.Text = u
+end
+
+table.insert(externalConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if isStale() then return end
+    if gameProcessed then return end
+    if not controlGui or not controlGui.Enabled or not controlGui.Parent then return end
+    if input.KeyCode == Keybinds.StartTrade then
+        functions.StartTrade()
+    elseif input.KeyCode == Keybinds.AcceptTrade then
+        if next(TradeTable.Player1.Offer) or next(TradeTable.Player2.Offer) then
+            if not v84 then
+                TheirOffer.Accepted.Visible = true
+                TradeTable.Player2.Accepted = true
+                AcceptTrade()
+            end
+        end
+    elseif input.KeyCode == Keybinds.BlockPlayer then
+        local name = PartnerUserBox.Text
+        if name ~= "" and State.cookie ~= "" then
+            task.spawn(function()
+                blockStatusLabel.Text = "Blocking " .. name .. "..."
+                blockStatusLabel.TextColor3 = THEME.Gold
+                local target, err = resolveUsername(name)
+                if target then 
+                    local ok, berr = doBlock(target.id) 
+                    if ok then
+                        blockStatusLabel.Text = "Successfully blocked " .. target.name
+                        blockStatusLabel.TextColor3 = THEME.Success
+                    else
+                        blockStatusLabel.Text = "Failed: " .. tostring(berr)
+                        blockStatusLabel.TextColor3 = THEME.Error
+                    end
+                else
+                    blockStatusLabel.Text = "Failed: " .. tostring(err)
+                    blockStatusLabel.TextColor3 = THEME.Error
+                end
+            end)
+        end
+    elseif input.KeyCode == Keybinds.RandomPlayer then
+        randomizeUser()
     end
 end))
 
@@ -3753,6 +4345,554 @@ do
     end
     fillRemainingSpace(playersFrame,playerListFrame,playerListLayout,playerListPadding)
     fillRemainingSpace(itemsFrame,weaponScrollFrame,wll,wlp)
+end
+
+
+-- Local visual trade cycles. Uses the same local offer/inventory functions as manual controls.
+do
+    local auto = { mode = nil, generation = 0, thread = nil, trade = nil, tween = nil, seeded = {} }
+    lifecycle.tradeAutomation = auto
+    local upgradeButton, giveawayButton, status
+    local function refresh()
+        upgradeButton.Text = "Auto Upgrade: "..(auto.mode == "upgrade" and "ON" or "OFF")
+        giveawayButton.Text = "Auto Giveaway: "..(auto.mode == "giveaway" and "ON" or "OFF")
+        upgradeButton:SetAttribute("ToggleActive",auto.mode == "upgrade")
+        upgradeButton.BackgroundColor3 = auto.mode == "upgrade" and THEME.Success or THEME.Panel2
+        giveawayButton:SetAttribute("ToggleActive",auto.mode == "giveaway")
+        giveawayButton.BackgroundColor3 = auto.mode == "giveaway" and THEME.Success or THEME.Panel2
+    end
+    local function stop(message)
+        auto.generation = auto.generation + 1
+        auto.mode = nil
+        if auto.tween then auto.tween:Cancel(); auto.tween = nil end
+        local worker = auto.thread
+        auto.thread = nil
+        if worker and worker ~= coroutine.running() then
+            pcall(lifecycle.nativeTask.cancel,worker)
+            lifecycle.threads[worker] = nil
+        end
+        if auto.trade and TradeTable == auto.trade then
+            ResetCooldown(true)
+            TradeGUI.Container.Trade.Actions.Accept.ActionButton.Visible = true
+            TradeGUI.Container.Trade.Actions.Accept.Cancel.Visible = false
+            functions.DeclineTrade()
+        end
+        if auto.trade and auto.trade.Completed then table.clear(auto.seeded) end
+        auto.trade = nil
+        for id, amount in pairs(auto.seeded) do RemoveItem(id,amount,"Weapons") end
+        table.clear(auto.seeded)
+        refresh()
+        status.Text = message or "Automation stopped."
+        local stoppedGeneration = auto.generation
+        task.delay(3,function()
+            if isStale() or auto.generation ~= stoppedGeneration or auto.mode then return end
+            if status and status.Parent then status.Text = "" end
+        end)
+    end
+    auto.stop = stop
+    local function randomPartner()
+        local starts = {"pickle","cloud","pixel","cozy","moon","toast","leaf","blue","sleepy","tiny","frost","lucky"}
+        local ends = {"man","fox","bean","bird","cat","star","bear","wolf","bunny","mint","wave","panda"}
+        return starts[math.random(#starts)]..ends[math.random(#ends)]..tostring(math.random(100,9999))
+    end
+    local function buildPools()
+        local valued, godlies = {}, {}
+        for _, id in ipairs(rareWeaponsList) do
+            local data = Sync.Weapons and Sync.Weapons[id]
+            if type(data) == "table" and not untradableItems[id] then
+                local value = SCANNER_VALUES[id]
+                if string.lower(tostring(data.Rarity)) == "godly"
+                    and type(value) == "number" and value > 0 and value <= 1000 then
+                    godlies[#godlies+1] = id
+                end
+                if type(value) == "number" and value > 0 then
+                    valued[#valued+1] = {id=id,value=value}
+                end
+            end
+        end
+        table.sort(valued,function(a,b)
+            if a.value == b.value then return a.id < b.id end
+            return a.value < b.value
+        end)
+        return valued,godlies
+    end
+    local function pickerButton(id)
+        for _, child in ipairs(weaponScrollFrame:GetChildren()) do
+            if child:IsA("TextButton") and child.Text == id then return child end
+        end
+    end
+    local function chooseUpgrade(valued)
+        local pairsAvailable = {}
+        for _, received in ipairs(valued) do
+            if received.value >= 100 and received.value < 3000 and pickerButton(received.id) then
+                for _, returned in ipairs(valued) do
+                    if returned.value >= received.value * 1.2 and returned.value <= received.value * 2 then
+                        pairsAvailable[#pairsAvailable+1] = {received,returned}
+                        break
+                    end
+                end
+            end
+        end
+        assert(#pairsAvailable > 0,"No valid under-3000 upgrade pairs were found in the scanner values.")
+        return table.unpack(pairsAvailable[math.random(#pairsAvailable)])
+    end
+    local function chooseFour(pool)
+        assert(#pool >= 4,"At least four Godly weapons are required in the weapon database.")
+        local shuffled = table.clone(pool)
+        for i=1,4 do
+            local j = math.random(i,#shuffled)
+            shuffled[i],shuffled[j] = shuffled[j],shuffled[i]
+        end
+        return {shuffled[1],shuffled[2],shuffled[3],shuffled[4]}
+    end
+    local function start(mode)
+        if auto.mode == mode then stop(); return end
+        if auto.mode then stop() end
+        if Config.in_trade then
+            status.Text = "Finish or decline the current trade before starting automation."
+            return
+        end
+        auto.mode = mode
+        auto.generation = auto.generation + 1
+        local generation = auto.generation
+        refresh()
+        local function alive()
+            return not isStale() and auto.mode == mode and auto.generation == generation
+        end
+        local function check()
+            assert(alive(),"Automation cancelled.")
+            if auto.trade and auto.trade.Completed then
+                auto.trade = nil
+                table.clear(auto.seeded)
+            end
+            if auto.trade then
+                assert(TradeTable == auto.trade and Config.in_trade and TradeGUI.Enabled,
+                    "Trade closed or changed; automation stopped.")
+                assert(TradeTable.Player2.Player == auto.partner,"Trade partner changed; automation stopped.")
+            end
+        end
+        local function pause(seconds)
+            local deadline = os.clock()+seconds
+            repeat
+                check()
+                task.wait(math.min(0.05,math.max(0,deadline-os.clock())))
+            until os.clock() >= deadline
+            check()
+        end
+        local function seed(id)
+            local has,amount = CheckForItem(id,"Weapons")
+            if not has or type(amount) ~= "number" or amount < 1 then
+                SpawnItem(id,1,"Weapons")
+                auto.seeded[id] = (auto.seeded[id] or 0)+1
+            end
+        end
+        local function beginTrade(partner)
+            check()
+            assert(not Config.in_trade,"Another trade is already open.")
+            auto.partner = partner
+            TradeTable.Player2.Player = partner
+            PartnerUserBox.Text = partner
+            local search = TradeGUI.Container.Items.Tabs.Search.Container.SearchText
+            search.Text = ""
+            functions.StartTrade()
+            auto.trade = TradeTable
+            check()
+            pause(2.3)
+        end
+        local function scrollTo(frame, scroll)
+            check()
+            assert(frame and frame.Parent and scroll,"Item is missing from the selector.")
+            local viewport = scroll.AbsoluteWindowSize.Y
+            local current = scroll.CanvasPosition.Y
+            local top = frame.AbsolutePosition.Y-scroll.AbsolutePosition.Y
+            local bottom = top+frame.AbsoluteSize.Y
+            local margin = math.min(12,viewport*0.06)
+            if top >= margin and bottom <= viewport-margin then return end
+            local limit = math.max(0,scroll.AbsoluteCanvasSize.Y-viewport)
+            local lowest = math.clamp(current+bottom-viewport+margin,0,limit)
+            local highest = math.clamp(current+top-margin,0,limit)
+            if lowest > highest then lowest,highest=highest,lowest end
+            local destination = lowest+(highest-lowest)*(0.12+math.random()*0.76)
+            local delta = destination-current
+            if math.abs(delta)<2 then return end
+            local direction = delta>0 and 1 or -1
+            local overshootDistance = math.max(95,math.min(235,math.abs(delta)*(0.28+math.random()*0.16)))
+            local overshoot = math.clamp(destination+direction*overshootDistance,0,limit)
+            -- If the far edge prevents that overshoot, cross the target from the other side.
+            if math.abs(overshoot-destination)<50 then
+                overshoot = math.clamp(destination-direction*overshootDistance,0,limit)
+            end
+            local function glide(y,duration,style)
+                auto.tween = TweenService:Create(scroll,TweenInfo.new(duration,style,Enum.EasingDirection.Out),{
+                    CanvasPosition=Vector2.new(0,y),
+                })
+                auto.tween:Play()
+                pause(duration)
+            end
+            local span = overshoot-current
+            local pace = math.clamp(math.abs(span)/750,0.45,1.5)
+            local first = 0.26+math.random()*0.13
+            local second = 0.65+math.random()*0.14
+            glide(math.clamp(current+span*first,0,limit),pace*0.29,Enum.EasingStyle.Quad)
+            glide(math.clamp(current+span*second,0,limit),pace*0.37,Enum.EasingStyle.Linear)
+            glide(overshoot,pace*0.34,Enum.EasingStyle.Quart)
+            -- Return in two uneven motions, ending anywhere that keeps the item visible.
+            local correction = destination-overshoot
+            glide(math.clamp(overshoot+correction*(0.62+math.random()*0.18),0,limit),
+                0.18+math.random()*0.15,Enum.EasingStyle.Quad)
+            glide(destination,0.14+math.random()*0.20,Enum.EasingStyle.Sine)
+            auto.tween = nil
+        end
+        local function selectOwn(id)
+            local data = TradeInventory and TradeInventory.Data and TradeInventory.Data.Weapons
+            local frame
+            if data then
+                for _, group in pairs(data) do
+                    if type(group)=="table" and group[id] then frame=group[id].Frame; break end
+                end
+            end
+            assert(frame and frame.Parent,"Weapon "..id.." is missing from the trade selector.")
+            local node,scroll = frame,nil
+            while node and node ~= TradeGUI do
+                if node:IsA("GuiObject") then node.Visible=true end
+                if node:IsA("ScrollingFrame") and not scroll then scroll=node end
+                node=node.Parent
+            end
+            assert(scroll,"Could not locate the weapon selector scroll frame.")
+            -- Switch the category page without invoking a trade remote.
+            for _, sibling in ipairs(scroll.Parent:GetChildren()) do
+                if sibling:IsA("ScrollingFrame") and sibling~=scroll then sibling.Visible=false end
+            end
+            scrollTo(frame,scroll)
+            OfferItemLocalPlayer(id,"Weapons",true)
+            local found=false
+            for _, item in ipairs(TradeTable.Player1.Offer) do if item[1]==id then found=true end end
+            assert(found,"Could not add "..id.." to your offer.")
+        end
+
+        local function claimRewards()
+            status.Text = "Waiting for the reward claim..."
+            local function visible(button)
+                local node = button
+                while node and node ~= guiParent do
+                    if node:IsA("GuiObject") and not node.Visible then return false end
+                    if node:IsA("ScreenGui") and not node.Enabled then return false end
+                    node = node.Parent
+                end
+                return node == guiParent and button.AbsoluteSize.X > 0 and button.AbsoluteSize.Y > 0
+            end
+            local function isClaim(text)
+                return type(text)=="string" and text:lower():gsub("[^%a]","")=="claim"
+            end
+            local function findClaim()
+                for _, button in ipairs(guiParent:GetDescendants()) do
+                    if button:IsA("GuiButton") and not button:IsDescendantOf(controlGui) and visible(button) then
+                        local matched = isClaim(button.Name) or (button:IsA("TextButton") and isClaim(button.Text))
+                        if not matched then
+                            for _, label in ipairs(button:GetDescendants()) do
+                                if label:IsA("TextLabel") and isClaim(label.Text) then matched=true; break end
+                            end
+                        end
+                        if matched then return button end
+                    end
+                end
+            end
+            local function press(button)
+                -- Invoke the existing claim handler when the executor exposes connections.
+                if getconnections then
+                    for _, signal in ipairs({button.MouseButton1Click,button.Activated}) do
+                        local ok, connections = pcall(getconnections,signal)
+                        if ok and type(connections)=="table" then
+                            local invoked = false
+                            for _, connection in ipairs(connections) do
+                                if connection.Enabled ~= false and type(connection.Function)=="function" then
+                                    connection.Function()
+                                    invoked = true
+                                end
+                            end
+                            if invoked then return end
+                        end
+                    end
+                end
+                -- Otherwise send one actual click to the center of the visible button.
+                local ok = pcall(function()
+                    local input = game:GetService("VirtualInputManager")
+                    local inset = game:GetService("GuiService"):GetGuiInset()
+                    local screen = button:FindFirstAncestorOfClass("ScreenGui")
+                    if screen and screen.IgnoreGuiInset then inset=Vector2.new(0,0) end
+                    local point = button.AbsolutePosition + button.AbsoluteSize/2 + inset
+                    input:SendMouseButtonEvent(point.X,point.Y,0,true,game,0)
+                    input:SendMouseButtonEvent(point.X,point.Y,0,false,game,0)
+                end)
+                assert(ok,"Cannot click Claim in this executor. Claim the reward manually, then restart the toggle.")
+            end
+            local deadline = os.clock()+6
+            local button = findClaim()
+            while not button and os.clock()<deadline do pause(0.1);button=findClaim() end
+            assert(button,"Claim button not found. Claim the reward manually before restarting.")
+            for _=1,5 do
+                pause(0.35)
+                check()
+                if button.Parent and visible(button) then press(button) end
+                local closedBy = os.clock()+5
+                while button.Parent and visible(button) and os.clock()<closedBy do pause(0.1) end
+                assert(not button.Parent or not visible(button),"Claim did not close the reward popup; automation stopped.")
+                pause(0.2)
+                button=findClaim()
+                if not button then status.Text="Reward claimed.";return end
+            end
+            error("More reward popups remain; claim them manually before restarting.")
+        end
+        local function accept()
+            check()
+            if not Config.in_trade then return end
+            status.Text = "Waiting for the trade cooldown..."
+            -- The first item started the countdown; each later item restarted it.
+            while v84 or v85 > 0 do
+                pause(0.1)
+            end
+            check()
+            if not Config.in_trade then return end
+            pause(0.1+math.random()*0.2)
+            if not Config.in_trade then return end
+            TheirOffer.Accepted.Visible = true
+            TradeTable.Player2.Accepted = true
+            status.Text = "Partner accepted. Confirming your offer..."
+            pause(0.25+math.random()*0.25)
+            check()
+            if not Config.in_trade then return end
+            -- First press: Accept becomes the game's Are You Sure? confirmation.
+            v35 = "Confirm"
+            v87 = time()
+            TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = true
+            status.Text = "Are you sure?"
+            pause(0.25)
+            check()
+            if not Config.in_trade then return end
+            -- Second press: our side accepts and the control becomes Cancel.
+            YourOffer.Accepted.Visible = true
+            TradeTable.Player1.Accepted = true
+            v35 = "Waiting"
+            TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = false
+            TradeGUI.Container.Trade.Actions.Accept.ActionButton.Visible = false
+            TradeGUI.Container.Trade.Actions.Accept.Cancel.Visible = true
+            status.Text = "Both sides accepted. Finishing trade..."
+            local expected = auto.trade
+            AcceptTrade(expected,alive)
+            assert(alive(),"Automation cancelled.")
+            assert(not Config.in_trade,"Trade did not finish.")
+            auto.trade = nil
+            -- Seeded outgoing copies were consumed by AcceptTrade's local inventory update.
+            table.clear(auto.seeded)
+        end
+        auto.thread = task.defer(function()
+            local ok,err = xpcall(function()
+                local valued,godlies = buildPools()
+                while alive() do
+                    local partner = randomPartner()
+                    if mode == "upgrade" then
+                        local received,returned = chooseUpgrade(valued)
+                        status.Text = "Receiving "..ScannerDisplayName(received.id).." ("..received.value.." SV)..."
+                        beginTrade(partner)
+                        -- Partner-side items appear directly in the trade offer; the deliberate
+                        -- selector scrolling is reserved for items added from our inventory.
+                        pause(0.2)
+                        assert(OfferItemAnotherPlayer(received.id,"Weapons",true),"Could not add the partner's item.")
+                        pause(0.15)
+                        accept()
+                        claimRewards()
+                        setActiveTab("Control")
+                        pause(1.8)
+                        status.Text = "Returning "..ScannerDisplayName(received.id).." + "..ScannerDisplayName(returned.id).." to "..partner.."..."
+                        seed(returned.id)
+                        beginTrade(partner)
+                        selectOwn(received.id)
+                        pause(2.4)
+                        selectOwn(returned.id)
+                        pause(1.8)
+                        accept()
+                    else
+                        local items = chooseFour(godlies)
+                        for _,id in ipairs(items) do seed(id) end
+                        status.Text = "Giving four Godlies to "..partner.."..."
+                        beginTrade(partner)
+                        for i,id in ipairs(items) do
+                            check()
+                            selectOwn(id)
+                            -- Read the selected item, then scroll to the next one (about 2.5 seconds per addition).
+                            if i < #items then pause(2.4) end
+                        end
+                        accept()
+                    end
+                    status.Text = "Cycle complete. Next partner in 3 seconds..."
+                    pause(3)
+                end
+            end,debug.traceback)
+            if auto.generation == generation then
+                stop(ok and "Automation stopped." or "Stopped: "..tostring(err):match("^[^\n]+"))
+                if not ok then warn("[VisualTrade] Automation: "..tostring(err)) end
+            end
+        end)
+    end
+    upgradeButton = CreateButton(controlFrame,"Auto Upgrade: OFF",function()
+        start("upgrade")
+        return auto.mode == "upgrade" and THEME.Success or THEME.Panel2
+    end)
+    giveawayButton = CreateButton(controlFrame,"Auto Giveaway: OFF",function()
+        start("giveaway")
+        return auto.mode == "giveaway" and THEME.Success or THEME.Panel2
+    end)
+    local groupGap = Instance.new("Frame")
+    groupGap.Name = "AutomationGroupGap"
+    groupGap.Size = UDim2.new(1,0,0,18)
+    groupGap.BackgroundTransparency = 1
+    groupGap.LayoutOrder = 7
+    groupGap.Parent = controlFrame
+    upgradeButton.LayoutOrder = 8
+    giveawayButton.LayoutOrder = 9
+    upgradeButton:SetAttribute("TooltipText","Toggle a local visual cycle: receive an item worth 100-2,999 SV, claim it, then return that original item PLUS a second item worth at least 20% more, rounded up within 2x. Uses slower selection and a 3-second pause between cycles.")
+    giveawayButton:SetAttribute("TooltipText","Toggle a local visual giveaway: choose a generated partner, scroll to four distinct Godly weapons each worth at most 1,000 SV, add them about 2.5 seconds apart, and accept after the cooldown. Waits 3 seconds between cycles. Switching modes stops the previous one.")
+    status = Instance.new("TextLabel")
+    functions.styleFlowText(status)
+    status.Size = UDim2.new(1,0,0,18)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.GothamBold
+    status.TextSize = 14
+    status.TextColor3 = THEME.Success
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Text = ""
+    status.LayoutOrder = 10
+    status.Parent = controlFrame
+    refresh()
+end
+
+-- Track the game's trade window, separately from this script's visual trades.
+do
+    local enabled=false
+    local lastPartner
+    local button
+    local realTrade={active=false,partner=nil,bothAccepted=false,sawUnaccepted=false}
+    local function findServerPlayer(value,seen)
+        if typeof(value)=="Instance" and value:IsA("Player") then
+            return value~=Players.LocalPlayer and value or nil
+        end
+        if type(value)=="number" then
+            local player=Players:GetPlayerByUserId(value)
+            return player~=Players.LocalPlayer and player or nil
+        end
+        if type(value)=="table" then
+            seen=seen or {}
+            if seen[value] then return nil end
+            seen[value]=true
+            for _,key in ipairs({"Partner","Player2","Player","Target","Username","UserName","Name","UserId","userId"}) do
+                local player=findServerPlayer(value[key],seen)
+                if player then return player end
+            end
+            return nil
+        end
+        if type(value)~="string" then return nil end
+        local name=value:match("%((.-)%)") or value
+        name=name:match("^%s*@?(.-)%s*$")
+        if not name or name=="" then return nil end
+        for _,player in ipairs(Players:GetPlayers()) do
+            if player~=Players.LocalPlayer and player.Name:lower()==name:lower() then return player end
+        end
+        local displayMatch
+        for _,player in ipairs(Players:GetPlayers()) do
+            if player~=Players.LocalPlayer and player.DisplayName:lower()==name:lower() then
+                if displayMatch then return nil end
+                displayMatch=player
+            end
+        end
+        return displayMatch
+    end
+    local function partnerFromWindow()
+        return findServerPlayer(TheirOffer.Username.Text)
+    end
+    local function selectLastPartner()
+        if not enabled or not lastPartner or isStale() or Config.in_trade then return end
+        if not PartnerUserBox or not PartnerUserBox.Parent then return end
+        PartnerUserBox.Text=lastPartner
+        TradeTable.Player2.Player=lastPartner
+    end
+    local function observeRealTrade()
+        if isStale() or Config.in_trade or not TradeGUI.Enabled then return end
+        realTrade.active=true
+        local player=partnerFromWindow()
+        if player then realTrade.partner=player.Name end
+        local both=YourOffer.Accepted.Visible and TheirOffer.Accepted.Visible
+        if not both then realTrade.sawUnaccepted=true end
+        if both and realTrade.sawUnaccepted then realTrade.bothAccepted=true end
+    end
+    onRealTradeStarted=function(arg1,arg2)
+        if Config.in_trade then return end
+        local alreadyOpen=realTrade.active and TradeGUI.Enabled
+        realTrade.active=true
+        if not alreadyOpen then
+            realTrade.bothAccepted=false
+            realTrade.sawUnaccepted=false
+        end
+        local player=findServerPlayer(arg1) or findServerPlayer(arg2)
+        realTrade.partner=player and player.Name or nil
+        task.defer(observeRealTrade)
+        task.delay(0.2,observeRealTrade)
+    end
+    table.insert(externalConnections,TradeGUI:GetPropertyChangedSignal("Enabled"):Connect(function()
+        if TradeGUI.Enabled then
+            observeRealTrade()
+        else
+            local accepted=realTrade.bothAccepted or (realTrade.sawUnaccepted
+                and YourOffer.Accepted.Visible and TheirOffer.Accepted.Visible)
+            if realTrade.active and accepted and not Config.in_trade then
+                local player=partnerFromWindow()
+                local name=realTrade.partner or (player and player.Name)
+                if name then
+                    lastPartner=name
+                    selectLastPartner()
+                end
+            end
+            realTrade.active=false
+            realTrade.partner=nil
+            realTrade.bothAccepted=false
+            realTrade.sawUnaccepted=false
+        end
+    end))
+    table.insert(externalConnections,TheirOffer.Username:GetPropertyChangedSignal("Text"):Connect(observeRealTrade))
+    table.insert(externalConnections,YourOffer.Accepted:GetPropertyChangedSignal("Visible"):Connect(observeRealTrade))
+    table.insert(externalConnections,TheirOffer.Accepted:GetPropertyChangedSignal("Visible"):Connect(observeRealTrade))
+    table.insert(externalConnections,game:GetService("RunService").Heartbeat:Connect(function()
+        if realTrade.active and TradeGUI.Enabled and not Config.in_trade then
+            local both=YourOffer.Accepted.Visible and TheirOffer.Accepted.Visible
+            if not both then realTrade.sawUnaccepted=true end
+            if both and realTrade.sawUnaccepted then realTrade.bothAccepted=true end
+        end
+    end))
+    observeRealTrade()
+    local gap=Instance.new("Frame")
+    gap.Name="LastTradeSelectionGroupGap"
+    gap.Size=UDim2.new(1,0,0,18)
+    gap.BackgroundTransparency=1
+    gap.LayoutOrder=11
+    gap.Parent=controlFrame
+    local heading=Instance.new("TextLabel")
+    heading.Name="LastTradeSelectionHeading"
+    heading.Size=UDim2.new(1,0,0,18)
+    heading.BackgroundTransparency=1
+    heading.Font=Enum.Font.GothamBold
+    heading.TextSize=12
+    heading.TextColor3=THEME.PurpleBright
+    heading.TextXAlignment=Enum.TextXAlignment.Left
+    heading.Text="TRADE PARTNER SELECTION"
+    heading.LayoutOrder=12
+    heading.Parent=controlFrame
+    button=CreateButton(controlFrame,"Auto Select Last Trader: OFF",function()
+        enabled=not enabled
+        button.Text="Auto Select Last Trader: "..(enabled and "ON" or "OFF")
+        button:SetAttribute("ToggleActive",enabled)
+        selectLastPartner()
+    end)
+    button.LayoutOrder=13
+    button:SetAttribute("TooltipText","After a real game trade shows both sides accepted and closes, select that server player in Control. Visual trades in this script do not count.")
 end
 
 -- One shared tooltip, outside the clipped tab frames.
@@ -3824,6 +4964,8 @@ do
     local bound = setmetatable({}, {__mode = "k"})
 
     local function describe(button)
+        local custom = button:GetAttribute("TooltipText")
+        if custom then return custom end
         if button == closeBtn then
             return "Close the panel, stop its workers, and restore the inventory display to your real items."
         elseif button == lifecycle.window.minimizeButton then
