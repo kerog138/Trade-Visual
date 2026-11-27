@@ -6877,9 +6877,8 @@ do
     local RunService = game:GetService("RunService")
     local PathfindingService = game:GetService("PathfindingService")
     local thingsToSay = {
-        "yo thx bro", "legit!", "thats clean", "lol no way",
-        "w trade", "yo thats sick", "tysm", "all good", "bro nice", "wait fr",
-        "okay thats cool", "nah thats fire", "good stuff", "thx man",
+        "vouch", "legit", "big vouch", "vouch fr", "so legit",
+        "super legit", "huge vouch", "legit fr", "vouch for you", "really legit",
     }
     local firstNames = {"pickle","cloud","ember","pixel","moss","toast","lunar","river",
         "frost","lucky","tiny","blue","cozy","dusk","maple","panda"}
@@ -6979,11 +6978,11 @@ do
         local jump=load(pack.jump,Enum.AnimationPriority.Action)
         if jump then jump.Looped=false end
         if idle then idle:Play(0.15) end
-        local function setWalking(active)
+        local function setWalking(active,speed)
             if active then
                 if idle and idle.IsPlaying then idle:Stop(0.18) end
                 if walk and not walk.IsPlaying then walk:Play(0.18) end
-                if walk then walk:AdjustSpeed(0.85+math.random()*0.25) end
+                if walk then walk:AdjustSpeed(math.clamp((speed or 10)/12,0.4,2.5)) end
             else
                 if walk and walk.IsPlaying then walk:Stop(0.2) end
                 if idle and not idle.IsPlaying then idle:Play(0.2) end
@@ -6994,265 +6993,301 @@ do
         end
         return setWalking,playJump
     end
-    local function placeModel(model,name,folder,mine,styleIndex,showNameplate)
-                if model then
-                    if isStale() or generation~=mine or not folder.Parent then model:Destroy(); return end
-                    local humanoid = model:FindFirstChildOfClass("Humanoid")
-                    local root = model:FindFirstChild("HumanoidRootPart")
-                    local character = Players.LocalPlayer.Character
-                    local localRoot = character and character:FindFirstChild("HumanoidRootPart")
-                    if humanoid and root and localRoot then
-                        model.Name = name
-                        humanoid.DisplayName = name
-                        humanoid.WalkSpeed = math.random(8,12)
-                        humanoid.DisplayDistanceType = showNameplate
-                            and Enum.HumanoidDisplayDistanceType.None or Enum.HumanoidDisplayDistanceType.Subject
-                        humanoid.NameDisplayDistance = 100
-                        humanoid.HealthDisplayDistance = 0
-                        humanoid.NameOcclusion = Enum.NameOcclusion.NoOcclusion
-                        local playerGround = groundNear(localRoot.Position,0)
-                        local point
-                        if playerGround then
-                            for attempt=1,24 do
-                                local candidate,floorPart=groundNear(localRoot.Position,6+math.random()*12,playerGround.Y)
-                                if candidate and hasRoomAt(candidate,floorPart) then point=candidate; break end
-                            end
-                        end
-                        if not point then model:Destroy(); return false end
-                        
-                        for _,part in ipairs(model:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide=false
-                                part.CanTouch=false
-                                part.CanQuery=false
-                            end
-                        end
-                        root.Anchored=true
-                        model.PrimaryPart=root
-                        model:PivotTo(CFrame.new(point+Vector3.new(0,model:GetExtentsSize().Y/2+2,0))
-                            *CFrame.Angles(0,math.random()*math.pi*2,0))
-                        
-                        local lowestFoot=math.huge
-                        for _,footName in ipairs({"LeftFoot","RightFoot","LeftLowerLeg","RightLowerLeg"}) do
-                            local foot=model:FindFirstChild(footName)
-                            if foot and foot:IsA("BasePart") then
-                                lowestFoot=math.min(lowestFoot,foot.Position.Y-foot.Size.Y/2)
-                            end
-                        end
-                        if lowestFoot<math.huge then
-                            model:PivotTo(model:GetPivot()+Vector3.new(0,point.Y-lowestFoot+0.08,0))
-                        end
-                        model:SetAttribute("FloorOffset",root.Position.Y-point.Y)
-                        model.Parent = folder
-                        if showNameplate then
-                            local head=model:FindFirstChild("Head")
-                            if head and head:IsA("BasePart") then
-                                local plate=Instance.new("BillboardGui")
-                                plate.Name="MM2BlessingUsername"
-                                plate.Adornee=head
-                                plate.Size=UDim2.fromOffset(200,32)
-                                plate.StudsOffsetWorldSpace=Vector3.new(0,1.8,0)
-                                plate.MaxDistance=100
-                                plate.AlwaysOnTop=true
-                                plate.Parent=head
-                                local textLabel=Instance.new("TextLabel")
-                                textLabel.Size=UDim2.fromScale(1,1)
-                                textLabel.BackgroundTransparency=1
-                                textLabel.Font=Enum.Font.GothamBold
-                                textLabel.TextSize=15
-                                textLabel.TextColor3=Color3.fromRGB(255,255,255)
-                                textLabel.TextStrokeColor3=Color3.fromRGB(22,18,26)
-                                textLabel.TextStrokeTransparency=0.2
-                                textLabel.Text=name
-                                textLabel.Parent=plate
-                            end
-                        end
-                        local setWalking,playJump=animate(humanoid,animationPacks[(styleIndex-1)%#animationPacks+1])
-                        local floorOffset=model:GetAttribute("FloorOffset")
-                        local lastRecovery=-math.huge
-                        local function active()
-                            return not isStale() and generation==mine and model.Parent==folder
-                        end
-                        local function flatDistance(a,b)
-                            return (Vector3.new(a.X,0,a.Z)-Vector3.new(b.X,0,b.Z)).Magnitude
-                        end
-                        local function collisionParams(character)
-                            local ignored={folder}
-                            if character then ignored[#ignored+1]=character end
-                            local cast=RaycastParams.new()
-                            cast.FilterType=Enum.RaycastFilterType.Exclude
-                            cast.FilterDescendantsInstances=ignored
-                            cast.RespectCanCollide=true
-                            local overlap=OverlapParams.new()
-                            overlap.FilterType=Enum.RaycastFilterType.Exclude
-                            overlap.FilterDescendantsInstances=ignored
-                            overlap.RespectCanCollide=true
-                            return cast,overlap
-                        end
-                        local function recoverFromObstacle(character)
-                            if os.clock()-lastRecovery<7 or not active() then return false end
-                            local cast,overlap=collisionParams(character)
-                            local start=root.Position
-                            
-                            if #Workspace:GetPartBoundsInBox(CFrame.new(start+Vector3.new(0,2.7,0)),
-                                Vector3.new(1.8,2.2,1.8),overlap)>0 then return false end
-                            local landing=start
-                            local floorY=start.Y-floorOffset
-                            for attempt=1,8 do
-                                local candidate,floorPart=groundNear(start,3+math.random()*2,floorY)
-                                if candidate and hasRoomAt(candidate,floorPart) then
-                                    local nextPosition=Vector3.new(candidate.X,candidate.Y+floorOffset,candidate.Z)
-                                    local sweep=Workspace:Blockcast(CFrame.new(start+Vector3.new(0,2.7,0)),
-                                        Vector3.new(1.8,2.2,1.8),nextPosition-start,cast)
-                                    if not sweep then landing=nextPosition; break end
-                                end
-                            end
-                            lastRecovery=os.clock()
-                            setWalking(false)
-                            playJump()
-                            local facing=landing-start
-                            facing=Vector3.new(facing.X,0,facing.Z)
-                            facing=facing.Magnitude>0.1 and facing.Unit or root.CFrame.LookVector
-                            local begun=os.clock()
-                            repeat
-                                RunService.PreSimulation:Wait()
-                                if not active() then return false end
-                                local alpha=math.clamp((os.clock()-begun)/0.7,0,1)
-                                local position=start:Lerp(landing,alpha)+Vector3.new(0,math.sin(alpha*math.pi)*2.7,0)
-                                root.CFrame=CFrame.lookAt(position,position+facing)
-                            until os.clock()-begun>=0.7
-                            root.CFrame=CFrame.lookAt(landing,landing+facing)
-                            return true
-                        end
-                        local function walkSegment(target,jump,character,shouldReplan)
-                            local start=root.Position
-                            local direction=Vector3.new(target.X-start.X,0,target.Z-start.Z)
-                            if direction.Magnitude<1.2 and math.abs(target.Y-start.Y)<0.8 then return true,false end
-                            local facing=direction.Magnitude>0.1 and direction.Unit or root.CFrame.LookVector
-                            local original=root.CFrame
-                            local duration=math.clamp((target-start).Magnitude/7,0.35,3.5)
-                            local cast=collisionParams(character)
-                            local begun=os.clock()
-                            setWalking(true)
-                            if jump then playJump() end
-                            repeat
-                                RunService.PreSimulation:Wait()
-                                if not active() then setWalking(false); return false,false end
-                                if shouldReplan and shouldReplan() then
-                                    setWalking(false)
-                                    return false,false
-                                end
-                                local alpha=math.clamp((os.clock()-begun)/duration,0,1)
-                                local eased=alpha*alpha*(3-2*alpha)
-                                local position=start:Lerp(target,eased)
-                                if jump then position=position+Vector3.new(0,math.sin(alpha*math.pi)*2.7,0) end
-                                local movement=position-root.Position
-                                if movement.Magnitude>0.01 then
-                                    local hit=Workspace:Blockcast(CFrame.new(root.Position),
-                                        Vector3.new(2.2,2.6,2.2),movement,cast)
-                                    if hit then
-                                        if jump then root.CFrame=original end
-                                        setWalking(false)
-                                        return false,true
-                                    end
-                                end
-                                root.CFrame=CFrame.lookAt(position,position+facing)
-                            until os.clock()-begun>=duration
-                            setWalking(false)
-                            return true,false
-                        end
-                        task.spawn(function()
-                            while active() do
-                                task.wait(1+math.random()*0.5)
-                                if not active() then break end
-                                local character=Players.LocalPlayer.Character
-                                local playerRoot=character and character:FindFirstChild("HumanoidRootPart")
-                                local _,overlap=collisionParams(character)
-                                local embedded=#Workspace:GetPartsInPart(root,overlap)>0
-                                if embedded then
-                                    recoverFromObstacle(character)
-                                    embedded=#Workspace:GetPartsInPart(root,overlap)>0
-                                end
-                                if not embedded and playerRoot and flatDistance(root.Position,playerRoot.Position)>10 then
-                                    local playerGround=groundNear(playerRoot.Position,0)
-                                    local goal
-                                    if playerGround then
-                                        for attempt=1,6 do
-                                            local spot,floorPart=groundNear(playerRoot.Position,4+math.random()*3,playerGround.Y)
-                                            if spot and hasRoomAt(spot,floorPart) then
-                                                goal=Vector3.new(spot.X,spot.Y+floorOffset,spot.Z)
-                                                break
-                                            end
-                                        end
-                                    end
-                                    if goal then
-                                        local path=PathfindingService:CreatePath({
-                                            AgentRadius=2,AgentHeight=5,AgentCanJump=true,WaypointSpacing=4,
-                                        })
-                                        local computed=pcall(path.ComputeAsync,path,root.Position,goal)
-                                        if not active() then path:Destroy(); break end
-                                        if computed and path.Status==Enum.PathStatus.Success then
-                                            local waypoints=path:GetWaypoints()
-                                            local waypointIndex=2
-                                            local blocked=false
-                                            local blockedConnection=path.Blocked:Connect(function(index)
-                                                if index>=waypointIndex then blocked=true end
-                                            end)
-                                            local plannedPlayerPosition=playerRoot.Position
-                                            for index=2,math.min(#waypoints,10) do
-                                                if not active() or blocked then break end
-                                                waypointIndex=index
-                                                local liveRoot=character and character:FindFirstChild("HumanoidRootPart")
-                                                if not liveRoot or flatDistance(root.Position,liveRoot.Position)<8
-                                                    or flatDistance(plannedPlayerPosition,liveRoot.Position)>13 then break end
-                                                local waypoint=waypoints[index]
-                                                local ground=groundNear(waypoint.Position,0)
-                                                if not ground then break end
-                                                local target=Vector3.new(ground.X,ground.Y+floorOffset,ground.Z)
-                                                local reached,obstructed=walkSegment(target,
-                                                    waypoint.Action==Enum.PathWaypointAction.Jump,character,
-                                                    function() return blocked end)
-                                                if obstructed then recoverFromObstacle(character); break end
-                                                if not reached then break end
-                                            end
-                                            blockedConnection:Disconnect()
-                                        else
-                                            local cast=collisionParams(character)
-                                            local start=root.Position
-                                            local toward=Vector3.new(goal.X-start.X,0,goal.Z-start.Z)
-                                            if toward.Magnitude>0.1 then
-                                                local step=start+toward.Unit*math.min(toward.Magnitude,9)
-                                                local floor=groundNear(step,0,start.Y-floorOffset)
-                                                if floor then
-                                                    local target=Vector3.new(floor.X,floor.Y+floorOffset,floor.Z)
-                                                    local movement=target-start
-                                                    if not Workspace:Blockcast(CFrame.new(start),
-                                                        Vector3.new(2.2,2.6,2.2),movement,cast) then
-                                                        local _,obstructed=walkSegment(target,false,character)
-                                                        if obstructed then recoverFromObstacle(character) end
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        path:Destroy()
-                                    end
-                                elseif not embedded and math.random()<0.08 then
-                                    local floorY=root.Position.Y-floorOffset
-                                    local ground=groundNear(root.Position,2+math.random()*2,floorY)
-                                    if ground then
-                                        local target=Vector3.new(ground.X,ground.Y+floorOffset,ground.Z)
-                                        local _,obstructed=walkSegment(target,false,character)
-                                        if obstructed then recoverFromObstacle(character) end
-                                    end
-                                end
-                            end
-                        end)
-                    else
-                        model:Destroy()
+    local actors = {}
+    local rng = Random.new()
+    local function flat(v) return Vector3.new(v.X,0,v.Z) end
+    local function castParams()
+        local p = RaycastParams.new()
+        p.FilterType = Enum.RaycastFilterType.Exclude
+        p.RespectCanCollide = true
+        local ignored = {lifecycle.fakeLobbyFolder}
+        for _,player in ipairs(Players:GetPlayers()) do
+            if player.Character then ignored[#ignored+1] = player.Character end
+        end
+        p.FilterDescendantsInstances = ignored
+        return p
+    end
+    local function chooseSpot(center, offset, except)
+        local best, score = nil, -math.huge
+        local params = castParams()
+        for attempt=1,24 do
+            local v = attempt==1 and offset or Vector3.new(
+                math.cos(attempt*2.39996+offset.X),0,math.sin(attempt*2.39996+offset.X))*rng:NextNumber(5,14)
+            local hit = Workspace:Raycast(center+v+Vector3.new(0,6,0),Vector3.new(0,-24,0),params)
+            if hit and hit.Normal.Y>0.65 and hasRoomAt(hit.Position,hit.Instance)
+                and (hit.Position+Vector3.new(0,3,0)-center).Magnitude<17 then
+                local clearance=8
+                for _,a in ipairs(actors) do
+                    if a~=except and a.model.Parent then
+                        clearance=math.min(clearance,flat(a.root.Position-hit.Position).Magnitude)
+                        if a.goal then clearance=math.min(clearance,flat(a.goal-hit.Position).Magnitude) end
                     end
                 end
-                return model.Parent==folder
+                local s=clearance*3-flat(v-offset).Magnitude*0.12
+                if s>score then best,score=hit.Position,s end
+            end
+        end
+        return best
     end
+    local function noCollision(a,b,parent)
+        local c=Instance.new("NoCollisionConstraint")
+        c.Part0=a; c.Part1=b; c.Parent=parent
+    end
+    local function bindCharacter(a,character)
+        if a.character==character then return end
+        a.character=character
+        if a.characterLink then a.characterLink:Disconnect() end
+        if a.constraints then a.constraints:Destroy() end
+        a.constraints=Instance.new("Folder")
+        a.constraints.Name="PlayerCollisionExclusions"
+        a.constraints.Parent=a.model
+        if not character then return end
+        local function add(part)
+            if part:IsA("BasePart") then
+                for _,body in ipairs(a.colliders) do noCollision(body,part,a.constraints) end
+            end
+        end
+        for _,part in ipairs(character:GetDescendants()) do add(part) end
+        a.characterLink=character.DescendantAdded:Connect(add)
+    end
+    local function repairHeadAccessories(model)
+        local head=model:FindFirstChild("Head")
+        if not head then return end
+        for _,accessory in ipairs(model:GetChildren()) do
+            if accessory:IsA("Accessory") then
+                local handle=accessory:FindFirstChild("Handle")
+                if not handle or not handle:IsA("BasePart") then
+                    accessory:Destroy()
+                else
+                    -- Keep Roblox's fitted mesh, scale, and weld offsets unchanged.
+                    handle.Anchored=false
+                    handle.CanCollide=false
+                    handle.CanTouch=false
+                    handle.Massless=true
+                    local kind=accessory.AccessoryType
+                    local isHead=kind==Enum.AccessoryType.Hair or kind==Enum.AccessoryType.Hat
+                        or kind==Enum.AccessoryType.Face
+                    for _,attachment in ipairs(handle:GetChildren()) do
+                        if attachment:IsA("Attachment") then
+                            local match=head:FindFirstChild(attachment.Name)
+                            if match and match:IsA("Attachment") then isHead=true end
+                        end
+                    end
+                    if isHead then
+                        local attached=false
+                        for _,joint in ipairs(handle:GetChildren()) do
+                            if joint:IsA("JointInstance") or joint:IsA("WeldConstraint") then
+                                if (joint.Part0==handle and joint.Part1==head)
+                                    or (joint.Part1==handle and joint.Part0==head) then
+                                    attached=true
+                                    break
+                                end
+                            end
+                        end
+                        -- An asset that failed native fitting is safer to omit than reposition by guessing.
+                        if not attached then accessory:Destroy() end
+                    end
+                end
+            end
+        end
+    end
+
+    local function placeModel(model,name,folder,mine,styleIndex,showNameplate)
+        if not model then return false end
+        local humanoid=model:FindFirstChildOfClass("Humanoid")
+        local root=model:FindFirstChild("HumanoidRootPart")
+        local character=Players.LocalPlayer.Character
+        local playerRoot=character and character:FindFirstChild("HumanoidRootPart")
+        if isStale() or generation~=mine or not folder.Parent or not humanoid or not root or not playerRoot then
+            model:Destroy(); return false
+        end
+        local angle=rng:NextNumber(0,math.pi*2)
+        local offset=Vector3.new(math.cos(angle),0,math.sin(angle))*rng:NextNumber(6,13)
+        local point=chooseSpot(playerRoot.Position,offset)
+        if not point then model:Destroy(); return false end
+        offset=flat(point-playerRoot.Position)
+        model.Name=name
+        model.PrimaryPart=root
+        humanoid.DisplayName=name
+        humanoid.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+        humanoid.NameDisplayDistance=100
+        humanoid.HealthDisplayDistance=0
+        humanoid.AutomaticScalingEnabled=false
+        humanoid.AutoRotate=true
+        humanoid.UseJumpPower=true
+        humanoid.JumpPower=48
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping,true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,false)
+        local colliders={}
+        for _,part in ipairs(model:GetDescendants()) do
+            if part:IsA("BaseScript") then part:Destroy()
+            elseif part:IsA("BasePart") then
+                part.Anchored=false
+                part.CanTouch=false
+                part.CanQuery=false
+                part.CanCollide=part==root or part.Name=="UpperTorso" or part.Name=="LowerTorso"
+                if part.CanCollide then colliders[#colliders+1]=part end
+            end
+        end
+        repairHeadAccessories(model)
+        local height=humanoid.HipHeight+root.Size.Y/2
+        model:PivotTo(CFrame.new(point+Vector3.new(0,height+0.1,0)))
+        model.Parent=folder
+        -- Explicit local nameplates remain visible when the game's native names are hidden.
+        local head=model:FindFirstChild("Head")
+        if head then
+            local plate=Instance.new("BillboardGui")
+            plate.Name="LocalLobbyNameplate"
+            plate.Adornee=head
+            plate.Size=UDim2.fromOffset(220,28)
+            plate.StudsOffsetWorldSpace=Vector3.new(0,head.Size.Y/2+1,0)
+            plate.MaxDistance=100
+            plate.AlwaysOnTop=true
+            plate.Enabled=true
+            plate.Parent=head
+            local label=Instance.new("TextLabel")
+            label.Name="Username"
+            label.Size=UDim2.fromScale(1,1)
+            label.BackgroundTransparency=1
+            label.Font=Enum.Font.SourceSansSemibold
+            label.TextSize=18
+            label.TextColor3=Color3.new(1,1,1)
+            label.TextStrokeColor3=Color3.new(0,0,0)
+            label.TextStrokeTransparency=0.4
+            label.Text=name
+            label.Parent=plate
+        end
+        local walking,jumping=animate(humanoid,animationPacks[(styleIndex-1)%#animationPacks+1])
+        local a={model=model,root=root,humanoid=humanoid,colliders=colliders,offset=offset,
+            height=height,mine=mine,goal=point,nextGoal=0,nextPath=0,nextMove=0,
+            nextWander=os.clock()+rng:NextNumber(25,45),nextJump=os.clock()+rng:NextNumber(18,40),
+            walking=walking,jumping=jumping,baseSpeed=rng:NextNumber(10,13),pathVersion=0}
+        for _,other in ipairs(actors) do
+            if other.model.Parent then
+                for _,p in ipairs(colliders) do
+                    for _,q in ipairs(other.colliders) do noCollision(p,q,model) end
+                end
+            end
+        end
+        actors[#actors+1]=a
+        bindCharacter(a,character)
+        a.destroyLink=model.Destroying:Connect(function()
+            a.dead=true
+            if a.characterLink then a.characterLink:Disconnect() end
+            a.destroyLink:Disconnect()
+        end)
+        return true
+    end
+    table.insert(externalConnections,RunService.Heartbeat:Connect(function(dt)
+        if isStale() then return end
+        local now=os.clock()
+        local character=Players.LocalPlayer.Character
+        local playerRoot=character and character:FindFirstChild("HumanoidRootPart")
+        for i=#actors,1,-1 do
+            local a=actors[i]
+            if a.dead or not a.model.Parent or a.mine~=generation then
+                if a.characterLink then a.characterLink:Disconnect() end
+                table.remove(actors,i)
+            elseif playerRoot then
+                local root,hum=a.root,a.humanoid
+                bindCharacter(a,character)
+                local distance=(root.Position-playerRoot.Position).Magnitude
+                -- Emergency tether only. Normal following uses Humanoid movement.
+                if distance>39.5 then
+                    local spot=chooseSpot(playerRoot.Position,a.offset,a)
+                    local position=spot and spot+Vector3.new(0,a.height+0.1,0)
+                        or playerRoot.Position+ a.offset.Unit*8
+                    local delta=position-playerRoot.Position
+                    if delta.Magnitude>39 then position=playerRoot.Position+delta.Unit*39 end
+                    a.model:PivotTo(CFrame.new(position)*root.CFrame.Rotation)
+                    root.AssemblyLinearVelocity=Vector3.zero
+                    root.AssemblyAngularVelocity=Vector3.zero
+                    a.path=nil; a.pathVersion=a.pathVersion+1; a.nextGoal=0
+                end
+                local velocity=flat(playerRoot.AssemblyLinearVelocity)
+                local moving=velocity.Magnitude>0.8
+                if now>=a.nextGoal then
+                    a.nextGoal=now+0.8
+                    if now>=a.nextWander then
+                        a.nextWander=now+rng:NextNumber(25,45)
+                        local angle=rng:NextNumber(-0.35,0.35)
+                        a.offset=CFrame.Angles(0,angle,0):VectorToWorldSpace(a.offset)
+                    end
+                    local offset=a.offset
+                    local desired=playerRoot.Position+offset
+                    if not a.goal or flat(desired-a.goal).Magnitude>7 or distance>34 then
+                        local spot=chooseSpot(playerRoot.Position,offset,a)
+                        if spot then
+                            a.goal=spot
+                            a.path=nil; a.pathVersion=a.pathVersion+1
+                        end
+                    end
+                end
+                local target=a.goal
+                if target then
+                    local toward=flat(target-root.Position)
+                    local separation=Vector3.zero
+                    for _,other in ipairs(actors) do
+                        if other~=a and other.model.Parent then
+                            local delta=flat(root.Position-other.root.Position)
+                            if delta.Magnitude>0.01 and delta.Magnitude<2.5 then
+                                separation=separation+delta.Unit*(2.5-delta.Magnitude)
+                            end
+                        end
+                    end
+                    local params=castParams()
+                    local obstruction=toward.Magnitude>1 and Workspace:Raycast(root.Position,
+                        toward.Unit*math.min(3,toward.Magnitude),params)
+                    if obstruction and now>=a.nextPath and not a.computing then
+                        a.nextPath=now+0.8; a.computing=true
+                        local version=a.pathVersion
+                        task.spawn(function()
+                            local path=PathfindingService:CreatePath({AgentRadius=1.6,AgentHeight=5,
+                                AgentCanJump=true,WaypointSpacing=3})
+                            local ok=pcall(path.ComputeAsync,path,root.Position,target)
+                            if not a.dead and a.mine==generation and version==a.pathVersion
+                                and ok and path.Status==Enum.PathStatus.Success then
+                                a.path=path:GetWaypoints(); a.waypoint=2
+                            end
+                            path:Destroy(); a.computing=false
+                        end)
+                    end
+                    if a.path then
+                        local waypoint=a.path[a.waypoint]
+                        if waypoint and flat(root.Position-waypoint.Position).Magnitude<2 then
+                            a.waypoint=a.waypoint+1; waypoint=a.path[a.waypoint]
+                        end
+                        if waypoint then
+                            target=waypoint.Position
+                            if waypoint.Action==Enum.PathWaypointAction.Jump then hum.Jump=true end
+                        else a.path=nil end
+                    else target=target+separation end
+                    local grounded=hum.FloorMaterial~=Enum.Material.Air
+                    if grounded and now>=a.nextJump and (obstruction or not moving) then
+                        hum.Jump=true
+                        a.nextJump=now+rng:NextNumber(18,40)
+                    end
+                    local speed=math.clamp(math.max(a.baseSpeed,velocity.Magnitude+2)+(distance>34 and 4 or 0),10,32)
+                    hum.WalkSpeed=hum.WalkSpeed+(speed-hum.WalkSpeed)*math.min(dt*7,1)
+                    if now>=a.nextMove then
+                        a.nextMove=now+0.12
+                        if flat(target-root.Position).Magnitude>2.5 then hum:MoveTo(target)
+                        else hum:Move(Vector3.zero) end
+                    end
+                    local state=hum:GetState()
+                    local airborne=state==Enum.HumanoidStateType.Jumping or state==Enum.HumanoidStateType.Freefall
+                    a.walking(not airborne and flat(root.AssemblyLinearVelocity).Magnitude>0.65,
+                        flat(root.AssemblyLinearVelocity).Magnitude)
+                    if state==Enum.HumanoidStateType.Jumping and a.lastState~=state then a.jumping() end
+                    a.lastState=state
+                end
+            else
+                a.humanoid:Move(Vector3.zero)
+                a.walking(false)
+            end
+        end
+    end))
+
     local function spawnLobby()
         generation = generation+1
         local mine = generation
@@ -7261,10 +7296,11 @@ do
         folder.Name = "MM2BlessingClientLobby"
         folder.Parent = Workspace
         lifecycle.fakeLobbyFolder = folder
-        status.Text = "Spawning 8 client-side avatars..."
+        status.Text = "Spawning 10 client-side avatars..."
         task.spawn(function()
             local created = 0
-            for i=1,8 do
+            local seenLooks,seenHair = {},{}
+            for i=1,10 do
                 if isStale() or generation~=mine or not folder.Parent then return end
                 local model
                 
@@ -7273,6 +7309,19 @@ do
                     local id = math.random(100000,1000000000)
                     local got,description = pcall(Players.GetHumanoidDescriptionFromUserIdAsync,Players,id)
                     if got and description then
+                        -- Preserve the original head and avatar scaling used to fit this hair.
+                        description.HairAccessory=description.HairAccessory:match("%d+") or ""
+                        description.HatAccessory=""
+                        local hair=description.HairAccessory
+                        local signature=hair..":"..description.HatAccessory..":"..description.Shirt..":"..description.Pants
+                        local defaultHair=false
+                        for asset in hair:gmatch("%d+") do
+                            if asset=="63690008" or asset=="48474313" then defaultHair=true end
+                        end
+                        if hair=="" or defaultHair or seenLooks[signature] or seenHair[hair] then
+                            description:Destroy()
+                            continue
+                        end
                         local loaded,result = pcall(Players.CreateHumanoidModelFromDescriptionAsync,
                             Players,description,Enum.HumanoidRigType.R15)
                         description:Destroy()
@@ -7280,6 +7329,7 @@ do
                             local size=result:GetExtentsSize()
                             if size.X<=8.5 and size.Y<=9.5 and size.Z<=8.5 then
                                 model=result
+                                seenLooks[signature]=true; seenHair[hair]=true
                                 break
                             end
                             result:Destroy()
@@ -7291,14 +7341,19 @@ do
                     local loaded,result = pcall(Players.CreateHumanoidModelFromDescriptionAsync,
                         Players,desc,Enum.HumanoidRigType.R15)
                     desc:Destroy()
-                    if loaded then model=result end
+                    if loaded then
+                        model=result
+                        -- Keep the clean native fallback; do not attach unscaled imitation hair parts.
+                    end
                 end
                 local name = firstNames[math.random(#firstNames)]..
                     suffixes[math.random(#suffixes)]..tostring(math.random(10,999))
                 if model and placeModel(model,name,folder,mine,i) then created=created+1 end
-                status.Text = "Spawned "..created.."/8 client-side avatars"
+                if isStale() or generation~=mine or not folder.Parent then return end
+                status.Text = "Spawned "..created.."/10 client-side avatars"
                 task.wait(0.15)
             end
+            if isStale() or generation~=mine or not folder.Parent then return end
             status.Text = "Spawned "..created.." client-side avatars. Click again to replace them."
         end)
     end
@@ -7307,6 +7362,7 @@ do
     local function summonUser()
         local username=(summonBox.Text or ""):match("^%s*(.-)%s*$")
         if username=="" then status.Text="Enter a username first."; return end
+        local summonGeneration=generation
         task.spawn(function()
             status.Text="Loading @"..username.."..."
             local ok,id=pcall(Players.GetUserIdFromNameAsync,Players,username)
@@ -7319,6 +7375,7 @@ do
                 Players,description,Enum.HumanoidRigType.R15)
             description:Destroy()
             if not made or not model then status.Text="Could not create avatar: "..username; return end
+            if isStale() or generation~=summonGeneration then model:Destroy(); return end
             local folder=lifecycle.fakeLobbyFolder
             if not folder or not folder.Parent then
                 folder=Instance.new("Folder")
@@ -7335,8 +7392,54 @@ do
     end
     local button = CreateButton(playersFrame,"Spawn Full Lobby",spawnLobby)
     button.LayoutOrder = 2
-    button:SetAttribute("TooltipText","Spawn eight client-only avatar models near you. They mostly hang out, occasionally walk and jump; click again to replace them.")
-    local positiveButton = CreateButton(playersFrame,"Postive text",function()
+    button:SetAttribute("TooltipText","Spawn ten client-only avatar models near you. They mostly hang out, occasionally walk and jump; click again to replace them.")
+    local speakerRank=1
+    local speakerFolder=nil
+    local lastSpeaker=nil
+    local speakerStreak=0
+    local function chooseSpeaker(folder,localRoot)
+        if speakerFolder~=folder then
+            speakerFolder=folder
+            speakerRank=1
+            lastSpeaker=nil
+            speakerStreak=0
+        end
+        local candidates={}
+        for index,model in ipairs(folder:GetChildren()) do
+            local root=model:FindFirstChild("HumanoidRootPart")
+            local head=model:FindFirstChild("Head")
+            local humanoid=model:FindFirstChildOfClass("Humanoid")
+            if root and head and humanoid and humanoid.Health>0 then
+                candidates[#candidates+1]={model=model,distance=(root.Position-localRoot.Position).Magnitude,index=index}
+            end
+        end
+        table.sort(candidates,function(a,b)
+            if a.distance==b.distance then return a.index<b.index end
+            return a.distance<b.distance
+        end)
+        local count=math.min(3,#candidates)
+        if count==0 then return nil end
+        local rank=(speakerRank-1)%count+1
+        local chosen=candidates[rank].model
+        -- Moving can change the ranking; never let that produce three consecutive vouches.
+        if chosen==lastSpeaker and speakerStreak>=2 then
+            for offset=1,count-1 do
+                local alternative=(rank+offset-1)%count+1
+                if candidates[alternative].model~=lastSpeaker then
+                    chosen=candidates[alternative].model
+                    break
+                end
+            end
+            -- With just one available dummy, pause until another is ready.
+            if chosen==lastSpeaker then return nil end
+        end
+        speakerRank=rank%count+1
+        speakerStreak=chosen==lastSpeaker and speakerStreak+1 or 1
+        lastSpeaker=chosen
+        return chosen
+    end
+
+    local function sayPositive()
         local folder=lifecycle.fakeLobbyFolder
         local character=Players.LocalPlayer.Character
         local localRoot=character and character:FindFirstChild("HumanoidRootPart")
@@ -7344,15 +7447,8 @@ do
             status.Text="Spawn a lobby first."
             return
         end
-        local nearest,best=nil,math.huge
-        for _,model in ipairs(folder:GetChildren()) do
-            local root=model:FindFirstChild("HumanoidRootPart")
-            if root then
-                local distance=(root.Position-localRoot.Position).Magnitude
-                if distance<best then nearest,best=model,distance end
-            end
-        end
-        if not nearest then status.Text="No avatar is ready yet."; return end
+        local nearest=chooseSpeaker(folder,localRoot)
+        if not nearest then status.Text="Waiting for an available vouch speaker."; return end
         local head=nearest:FindFirstChild("Head")
         if not head then return end
         local last=nearest:GetAttribute("LastPhrase")
@@ -7368,13 +7464,32 @@ do
         status.TextColor3=THEME.Success
         status.Font=Enum.Font.GothamBold
         status.Text=nearest.Name.." said: "..phrase
+    end
+    local positiveEnabled=false
+    local nextPositive=0
+    local positiveButton
+    local function setPositive(enabled)
+        positiveEnabled=enabled
+        speakerRank=1
+        nextPositive=os.clock()+10
+        positiveButton.Text="Positive text: "..(enabled and "ON" or "OFF")
+        positiveButton:SetAttribute("ToggleActive",enabled)
+    end
+    positiveButton=CreateButton(playersFrame,"Positive text: OFF",function()
+        setPositive(not positiveEnabled)
     end)
+    table.insert(externalConnections,RunService.Heartbeat:Connect(function()
+        if isStale() or not positiveEnabled or os.clock()<nextPositive then return end
+        nextPositive=os.clock()+10
+        sayPositive()
+    end))
     positiveButton.LayoutOrder=3
-    positiveButton:SetAttribute("TooltipText","Make the nearest spawned avatar say one casual positive phrase locally.")
+    positiveButton:SetAttribute("TooltipText","Green means ON. Every 10 seconds, rotate through the closest, second closest, and third closest local dummies. OFF stops the timer.")
     local summonButton=CreateButton(playersFrame,"Summon Specific User",summonUser)
     summonButton.LayoutOrder=5
     summonButton:SetAttribute("TooltipText","Spawn the avatar for the username above on your client only.")
     local deleteButton = CreateButton(playersFrame,"Delete Full Lobby",function()
+        setPositive(false)
         generation = generation+1
         if lifecycle.fakeLobbyFolder then
             lifecycle.fakeLobbyFolder:Destroy()
