@@ -4016,7 +4016,7 @@ local function isStale()
     return getgenv()[GEN_KEY] ~= MY_GEN
 end
 
--- Own every scheduled worker so closing can cancel work waiting to resume.
+
 local task = setmetatable({}, { __index = lifecycle.nativeTask })
 function lifecycle.schedule(kind, delaySeconds, callback, ...)
     if isStale() then return nil end
@@ -4117,7 +4117,7 @@ local COOKIE_FILE = AUTH_FOLDER .. "/cookie.txt"
 local TRACKER_FILE = AUTH_FOLDER .. "/Rbxtrackerid.txt"
 local LEGACY_AUTH_FILE = "visualtrade_auth.json"
 
--- Reversible obfuscation for casual viewing; this is not encryption.
+
 local AUTH_SYMBOLS = "@#%&*!?+=:;~^()_"
 local function encodeAuth(value)
     local salt = math.random(0, 255)
@@ -4188,7 +4188,7 @@ local function saveAuthToFile(cookie, tracker)
         end
     end)
     if not ok then return false, tostring(err) end
-    -- Remove the previous plaintext copy only after the new save succeeds.
+    
     if delfile then pcall(delfile, LEGACY_AUTH_FILE) end
     return true, nil
 end
@@ -4205,7 +4205,7 @@ local function loadAuthFromFile()
             return true
         end
     end
-    -- Preserve existing saved auth by migrating the original JSON file.
+    
     local ok, data = pcall(readfile, LEGACY_AUTH_FILE)
     if not ok or type(data) ~= "string" then return false end
     local decodedOk, decoded = pcall(function() return HttpService:JSONDecode(data) end)
@@ -4240,7 +4240,7 @@ if getgenv and getgenv()[PERSIST_KEY] then
     spoofed.Pets = spoofed.Pets or {}
 end
 
--- Old versions could leave invalid visual IDs in ProfileData or persisted spoof tables.
+
 local invalidWeapons = {
     Ripple=true, TidalChroma=true, Coast=true, DunesChroma=true,
     DriftChroma=true, Surf=true, SurfChroma=true, SandyChroma=true,
@@ -4490,7 +4490,7 @@ local function resolveUsername(name)
     return { id = data.data[1].id, name = data.data[1].name }, nil
 end
 
--- Successful blocks stay marked for this execution, independently of Auto Block or auth edits.
+
 local scannerBlockedUsers = {}
 lifecycle.coreBlockedUsers = {}
 local refreshBlockedScannerOutline = function() end
@@ -4978,7 +4978,7 @@ local function ResetCooldown(arg1)
     end
 end
 
--- Automated offers show the normal countdown immediately without blocking item selection.
+
 local function restartAutomatedCooldown()
     automatedCooldownVersion = automatedCooldownVersion + 1
     local version = automatedCooldownVersion
@@ -5248,9 +5248,9 @@ mainStroke.Thickness = 1.5
 mainStroke.Transparency = 0.08
 mainStroke.Parent = mainFrame
 
--- Cosmetic background only. Replace the previous artwork block with this one.
--- Native EditableImage; no HTTP, asset IDs or executor-specific APIs.
--- Requires a parent GuiObject named mainFrame in the surrounding code.
+
+
+
 do
     local function DrawMM2Background(parent)
         local W, H = 660, 1023
@@ -5618,8 +5618,8 @@ do
             artwork.Position = UDim2.fromScale(0.5,0.5)
             artwork.Size = UDim2.fromScale(1,1)
             artwork.ScaleType = Enum.ScaleType.Stretch
-            artwork.ImageTransparency = 0 -- Dimming is already baked into RGB.
-            artwork.ImageColor3 = Color3.fromRGB(255,255,255) -- neutral tint
+            artwork.ImageTransparency = 0 
+            artwork.ImageColor3 = Color3.fromRGB(255,255,255) 
             artwork.ZIndex = 1
             artwork.Active = false
             artwork.ImageContent = Content.fromObject(editable)
@@ -5666,7 +5666,7 @@ headerDivider.BorderSizePixel = 0
 headerDivider.ZIndex = 3
 headerDivider.Parent = mainFrame
 
--- Embedded cartoon wordmark (rounded upright lettering, bright gradient, transparent canvas).
+
 do
     local W, H = 860, 120
     local encoded = table.concat({
@@ -5781,7 +5781,7 @@ watermark.TextXAlignment = Enum.TextXAlignment.Left
 watermark.ZIndex = 4
 watermark.Parent = headerBar
 
--- Shared translucent pill containing minimize/restore and close.
+
 lifecycle.window = { minimized = false }
 lifecycle.window.controls = Instance.new("Frame")
 lifecycle.window.controls.Name = "WindowControls"
@@ -5864,7 +5864,7 @@ function lifecycle.cleanup(fromDestroy)
     State.authValidated = false
     State.csrf = nil
 
-    -- Invalidate first, then cancel workers before restoring shared game tables.
+    
     if lifecycle.environment.__MM2BlessingCleanup == lifecycle.cleanup then
         lifecycle.environment.__MM2BlessingCleanup = nil
         lifecycle.environment[GEN_KEY] = (lifecycle.environment[GEN_KEY] or 0) + 1
@@ -5989,7 +5989,7 @@ function lifecycle.window.setMinimized(minimized)
     end
     local height = minimized and 60 or 620
     local position = mainFrame.Position
-    -- The centered anchor needs a matching position change to keep the top fixed.
+    
     local shift = (height - mainFrame.Size.Y.Offset) * mainFrame.AnchorPoint.Y
     window.tween = TweenService:Create(mainFrame,TweenInfo.new(0.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{
         Size = UDim2.new(0,400,0,height),
@@ -6052,7 +6052,7 @@ for i, tabName in ipairs(tabs) do
     tb.MouseLeave:Connect(function()
         if currentTab~=tabName then TweenService:Create(tb,TweenInfo.new(0.13),{BackgroundColor3=THEME.Panel2,BackgroundTransparency=0.28}):Play() end
     end)
-    -- These tabs keep their controls fixed and scroll only the inner list.
+    
     local hasInnerList = tabName == "Scanner" or tabName == "Items" or tabName == "Players"
     local tf = Instance.new(hasInnerList and "Frame" or "ScrollingFrame")
     tf.BorderSizePixel = 0
@@ -6068,7 +6068,7 @@ for i, tabName in ipairs(tabs) do
     tf.AnchorPoint = Vector2.new(0.5,0)
     tf.Position = UDim2.new(0.5,0,0,108)
     tf.BackgroundTransparency = 1
-    tf.ZIndex = 2 -- Keep tab contents above the artwork layer.
+    tf.ZIndex = 2 
     tf.Visible = i==1
     tf.Parent = mainFrame
     local contentPadding = Instance.new("UIPadding")
@@ -6096,7 +6096,7 @@ local authFrame    = tabFrames["Auth"]
 local totalFrame   = tabFrames["Total"]
 
 local function CreateSpace(f)
-    -- Spacing is owned by the tab layout so every gap is identical.
+    
 end
 
 local function CreateButton(f, text, fn, colorOverride)
@@ -6143,7 +6143,7 @@ local function CreateButton(f, text, fn, colorOverride)
     return btn
 end
 
--- Wrapped labels grow vertically; their own TextColor3 remains unchanged.
+
 function functions.styleFlowText(label)
     label.AutomaticSize = Enum.AutomaticSize.Y
     label.TextWrapped = true
@@ -6181,7 +6181,7 @@ local function createSettingRow(labelText, defaultValue, parent, masked)
     pad.PaddingRight = UDim.new(0, 8)
     pad.Parent = box
     if masked then
-        -- The actual value stays in the TextBox; only stars are rendered.
+        
         local view = Instance.new("ScrollingFrame")
         view.Name = "AuthScroll"
         view.BackgroundTransparency = 1
@@ -6265,7 +6265,7 @@ local function createSettingRow(labelText, defaultValue, parent, masked)
         connect(view:GetPropertyChangedSignal("AbsoluteSize"), function() refreshMask(true) end)
         connect(box.Focused, function() blinkStarted = os.clock(); refreshMask(true) end)
         connect(box.FocusLost, function() caret.Visible = false; selection.Visible = false end)
-        -- Map taps to stars instead of the invisible, variable-width secret text.
+        
         local pointerStart
         connect(view.InputBegan, function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -6870,7 +6870,7 @@ playerListLabel.TextColor3 = THEME.PurpleBright
 playerListLabel.TextXAlignment = Enum.TextXAlignment.Left
 playerListLabel.Parent = playersFrame
 
--- Eight client-only wandering avatar models. Clicking again replaces the old set.
+
 do
     local Workspace = game:GetService("Workspace")
     local TextChatService = game:GetService("TextChatService")
@@ -6907,7 +6907,7 @@ do
         if lifecycle.fakeLobbyFolder then ignored[#ignored+1] = lifecycle.fakeLobbyFolder end
         if Players.LocalPlayer.Character then ignored[#ignored+1] = Players.LocalPlayer.Character end
         params.FilterDescendantsInstances = ignored
-        -- Start close to the current floor so a roof or platform above the lobby is not chosen.
+        
         local height = referenceY or center.Y
         local hit = Workspace:Raycast(Vector3.new(point.X,height+5,point.Z),Vector3.new(0,-15,0),params)
         if not hit or (referenceY and math.abs(hit.Position.Y-referenceY)>1.5) then return nil end
@@ -6952,14 +6952,14 @@ do
         return desc
     end
     local animationPacks = {
-        {idle=707742142,walk=707897309,jump=707853694}, -- Mage
-        {idle=616158929,walk=616168032,jump=616161997}, -- Zombie
-        {idle=656117400,walk=656121766,jump=656117878}, -- Ninja
-        {idle=616136790,walk=616146177,jump=616139451}, -- Stylish
-        {idle=910004836,walk=910034870,jump=910016857}, -- Bubbly
-        {idle=742637544,walk=742640026,jump=742637942}, -- Cartoony
-        {idle=750781874,walk=750785693,jump=750782230}, -- Pirate
-        {idle=1083445855,walk=1083473930,jump=1083455352}, -- Vampire
+        {idle=707742142,walk=707897309,jump=707853694}, 
+        {idle=616158929,walk=616168032,jump=616161997}, 
+        {idle=656117400,walk=656121766,jump=656117878}, 
+        {idle=616136790,walk=616146177,jump=616139451}, 
+        {idle=910004836,walk=910034870,jump=910016857}, 
+        {idle=742637544,walk=742640026,jump=742637942}, 
+        {idle=750781874,walk=750785693,jump=750782230}, 
+        {idle=1083445855,walk=1083473930,jump=1083455352}, 
     }
     local function animate(humanoid,pack)
         local animator = humanoid:FindFirstChildOfClass("Animator")
@@ -7019,7 +7019,7 @@ do
                             end
                         end
                         if not point then model:Destroy(); return false end
-                        -- The models are visual only. Physical collisions can tug at limbs and accessories.
+                        
                         for _,part in ipairs(model:GetDescendants()) do
                             if part:IsA("BasePart") then
                                 part.CanCollide=false
@@ -7031,7 +7031,7 @@ do
                         model.PrimaryPart=root
                         model:PivotTo(CFrame.new(point+Vector3.new(0,model:GetExtentsSize().Y/2+2,0))
                             *CFrame.Angles(0,math.random()*math.pi*2,0))
-                        -- Align the actual feet to the floor; model extents include hair and accessories.
+                        
                         local lowestFoot=math.huge
                         for _,footName in ipairs({"LeftFoot","RightFoot","LeftLowerLeg","RightLowerLeg"}) do
                             local foot=model:FindFirstChild(footName)
@@ -7093,7 +7093,7 @@ do
                             if os.clock()-lastRecovery<7 or not active() then return false end
                             local cast,overlap=collisionParams(character)
                             local start=root.Position
-                            -- A wall or ceiling above the avatar cannot be cleared with a hop.
+                            
                             if #Workspace:GetPartBoundsInBox(CFrame.new(start+Vector3.new(0,2.7,0)),
                                 Vector3.new(1.8,2.2,1.8),overlap)>0 then return false end
                             local landing=start
@@ -7267,7 +7267,7 @@ do
             for i=1,8 do
                 if isStale() or generation~=mine or not folder.Parent then return end
                 local model
-                -- Sample ordinary accounts instead of a recognizable username list.
+                
                 for attempt=1,5 do
                     if isStale() or generation~=mine or not folder.Parent then return end
                     local id = math.random(100000,1000000000)
@@ -7781,7 +7781,7 @@ scannerPadding.PaddingTop = UDim.new(0,5)
 scannerPadding.PaddingBottom = UDim.new(0,5)
 scannerPadding.Parent = scannerScroll
 
--- Fit the list to the remaining tab height, including wrapped status text.
+
 function functions.updateScannerViewport()
     if isStale() or not scannerScroll.Parent then return end
     local height = math.max(0, math.floor(scannerFrame.AbsoluteSize.Y
@@ -7790,7 +7790,7 @@ function functions.updateScannerViewport()
     if scannerScroll.Size ~= size then scannerScroll.Size = size end
 end
 
--- Resize the canvas only when content height changes; preserve scroll position.
+
 function functions.updateScannerCanvas()
     if isStale() or not scannerScroll.Parent then return end
     local height = math.ceil(scannerLayout.AbsoluteContentSize.Y
@@ -7838,8 +7838,8 @@ refreshBlockedScannerOutline = function(userId)
     end
 end
 
--- Read normal Roblox block state without accessing account cookies.
--- Keep previous state if CoreGui is still loading or unavailable.
+
+
 function functions.syncScannerBlockedUsers()
     local ok, ids = pcall(function()
         return game:GetService("StarterGui"):GetCore("GetBlockedUserIds")
@@ -7850,7 +7850,7 @@ function functions.syncScannerBlockedUsers()
         local numericId = tonumber(id)
         if numericId then current[numericId] = true end
     end
-    -- Clear a session marker when a previously confirmed core block is removed.
+    
     for id in pairs(lifecycle.coreBlockedUsers) do
         if not current[id] then scannerBlockedUsers[id] = nil end
     end
@@ -8259,7 +8259,7 @@ table.insert(externalConnections, UserInputService.InputBegan:Connect(function(i
     end
 end))
 
--- Fit list viewports to the space below their controls; use a single scroll surface.
+
 do
     local function fillRemainingSpace(tab, list, listLayout, listPadding)
         local outerLayout = tab:FindFirstChildOfClass("UIListLayout")
@@ -8324,7 +8324,7 @@ do
 end
 
 
--- Local visual trade cycles. Uses the same local offer/inventory functions as manual controls.
+
 do
     local auto = { mode = nil, generation = 0, thread = nil, trade = nil, tween = nil, seeded = {} }
     lifecycle.tradeAutomation = auto
@@ -8494,7 +8494,7 @@ do
             local direction = delta>0 and 1 or -1
             local overshootDistance = math.max(95,math.min(235,math.abs(delta)*(0.28+math.random()*0.16)))
             local overshoot = math.clamp(destination+direction*overshootDistance,0,limit)
-            -- If the far edge prevents that overshoot, cross the target from the other side.
+            
             if math.abs(overshoot-destination)<50 then
                 overshoot = math.clamp(destination-direction*overshootDistance,0,limit)
             end
@@ -8512,7 +8512,7 @@ do
             glide(math.clamp(current+span*first,0,limit),pace*0.29,Enum.EasingStyle.Quad)
             glide(math.clamp(current+span*second,0,limit),pace*0.37,Enum.EasingStyle.Linear)
             glide(overshoot,pace*0.34,Enum.EasingStyle.Quart)
-            -- Return in two uneven motions, ending anywhere that keeps the item visible.
+            
             local correction = destination-overshoot
             glide(math.clamp(overshoot+correction*(0.62+math.random()*0.18),0,limit),
                 0.18+math.random()*0.15,Enum.EasingStyle.Quad)
@@ -8535,7 +8535,7 @@ do
                 node=node.Parent
             end
             assert(scroll,"Could not locate the weapon selector scroll frame.")
-            -- Switch the category page without invoking a trade remote.
+            
             for _, sibling in ipairs(scroll.Parent:GetChildren()) do
                 if sibling:IsA("ScrollingFrame") and sibling~=scroll then sibling.Visible=false end
             end
@@ -8574,7 +8574,7 @@ do
                 end
             end
             local function press(button)
-                -- Invoke the existing claim handler when the executor exposes connections.
+                
                 if getconnections then
                     for _, signal in ipairs({button.MouseButton1Click,button.Activated}) do
                         local ok, connections = pcall(getconnections,signal)
@@ -8590,7 +8590,7 @@ do
                         end
                     end
                 end
-                -- Otherwise send one actual click to the center of the visible button.
+                
                 local ok = pcall(function()
                     local input = game:GetService("VirtualInputManager")
                     local inset = game:GetService("GuiService"):GetGuiInset()
@@ -8623,7 +8623,7 @@ do
             check()
             if not Config.in_trade then return end
             status.Text = "Waiting for the trade cooldown..."
-            -- The first item started the countdown; each later item restarted it.
+            
             while v84 or v85 > 0 do
                 pause(0.1)
             end
@@ -8637,7 +8637,7 @@ do
             pause(0.25+math.random()*0.25)
             check()
             if not Config.in_trade then return end
-            -- First press: Accept becomes the game's Are You Sure? confirmation.
+            
             v35 = "Confirm"
             v87 = time()
             TradeGUI.Container.Trade.Actions.Accept.Confirm.Visible = true
@@ -8645,7 +8645,7 @@ do
             pause(0.25)
             check()
             if not Config.in_trade then return end
-            -- Second press: our side accepts and the control becomes Cancel.
+            
             YourOffer.Accepted.Visible = true
             TradeTable.Player1.Accepted = true
             v35 = "Waiting"
@@ -8658,7 +8658,7 @@ do
             assert(alive(),"Automation cancelled.")
             assert(not Config.in_trade,"Trade did not finish.")
             auto.trade = nil
-            -- Seeded outgoing copies were consumed by AcceptTrade's local inventory update.
+            
             table.clear(auto.seeded)
         end
         auto.thread = task.defer(function()
@@ -8670,8 +8670,8 @@ do
                         local received,returned = chooseUpgrade(valued)
                         status.Text = "Receiving "..ScannerDisplayName(received.id).." ("..received.value.." SV)..."
                         beginTrade(partner)
-                        -- Partner-side items appear directly in the trade offer; the deliberate
-                        -- selector scrolling is reserved for items added from our inventory.
+                        
+                        
                         pause(0.2)
                         assert(OfferItemAnotherPlayer(received.id,"Weapons",true),"Could not add the partner's item.")
                         pause(0.15)
@@ -8695,7 +8695,7 @@ do
                         for i,id in ipairs(items) do
                             check()
                             selectOwn(id)
-                            -- Read the selected item, then scroll to the next one (about 2.5 seconds per addition).
+                            
                             if i < #items then pause(2.4) end
                         end
                         accept()
@@ -8742,7 +8742,7 @@ do
     refresh()
 end
 
--- Track the game's trade window, separately from this script's visual trades.
+
 do
     local enabled=false
     local lastPartner
@@ -8871,7 +8871,7 @@ do
     button:SetAttribute("TooltipText","After a real game trade shows both sides accepted and closes, select that server player in Control. Visual trades in this script do not count.")
 end
 
--- One shared tooltip, outside the clipped tab frames.
+
 do
     local descriptions = {
         ["Control"] = "Choose a partner, open the visual trade, accept their offer, or manage blocking.",
@@ -8965,7 +8965,7 @@ do
     local function bind(button)
         if not button:IsA("GuiButton") or bound[button] then return end
         bound[button] = true
-        -- Instance-owned signals disconnect automatically when dynamic buttons are destroyed.
+        
         button.MouseEnter:Connect(function()
             hovered = button
             enteredAt = os.clock()
@@ -8993,7 +8993,7 @@ do
         if not hovered:IsDescendantOf(controlGui) then hovered = nil; hide(); return end
         local mouse = UserInputService:GetMouseLocation()
         if not controlGui.IgnoreGuiInset then mouse = mouse - guiService:GetGuiInset() end
-        -- Hidden tabs and clipped/scrolled-out rows must never leave a tooltip behind.
+        
         local ancestor = hovered
         while ancestor and ancestor ~= controlGui do
             if ancestor:IsA("GuiObject") then
